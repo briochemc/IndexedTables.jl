@@ -857,6 +857,24 @@ end
     b = ndsparse([2, 3, 4], [1, 2, 3])
     @test merge(a, b) == ndsparse(([1, 2, 3, 4, 5],), [1, 1, 2, 3, 3])
     @test merge(a, b, agg=+) == ndsparse(([1, 2, 3, 4, 5],), [1, 1, 4, 3, 3])
+
+    # merge optimization for pooled arrays
+    x = begin
+        x = [randstring(5) for idx in 1:128];
+        for idx in 1:5
+            x = vcat(x, x)
+        end
+        PooledArray(x)
+    end;
+    a = table(x, names=[:x]);
+    b = table([randstring(5) for idx in 1:64], names=[:x]);
+    c = merge(a, b);
+    d = merge(b, a);
+
+    @test isa(select(a, :x), PooledArray)
+    @test !isa(select(b, :x), PooledArray)
+    @test isa(select(c, :x), PooledArray)
+    @test isa(select(d, :x), PooledArray)
 end
 
 @testset "broadcast" begin
