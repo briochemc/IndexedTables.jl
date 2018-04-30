@@ -415,7 +415,8 @@ function groupby(f, t::Dataset, by=pkeynames(t);
 
     if by == ()
         res = usekey ? _apply_with_key(fs, (), input, identity) : _apply_with_key(fs, input, identity)
-        return addname(res, namedtuple(nicename(f)))
+        res_tup = addname(res, namedtuple(nicename(f)))
+        return flatten ? res_tup[end] : res_tup
     end
 
     perm = sortpermby(t, by)
@@ -431,26 +432,30 @@ end
 struct ApplyColwise{T}
     functions::T
     names::Vector{Symbol}
+    stack::Bool
+    variable::Symbol
 end
 
-ApplyColwise(f) = ApplyColwise(f, Symbol[])
-ApplyColwise(t::Tuple) = ApplyColwise(t, [map(Symbol,t)...])
-ApplyColwise(t::NamedTuple) = ApplyColwise(Tuple(values(t)), keys(t))
+ApplyColwise(f; stack = false, variable = :variable) = ApplyColwise(f, [Symbol(f)], stack, variable)
+ApplyColwise(t::Tuple; stack = false, variable = :variable) = ApplyColwise(t, [map(Symbol,t)...], stack, variable)
+ApplyColwise(t::NamedTuple; stack = false, variable = :variable) = ApplyColwise(Tuple(values(t)), keys(t), stack, variable)
 
 init_func(f, t) = f
 init_func(ac::ApplyColwise{<:Tuple}, t::AbstractVector) =
     Tuple(Symbol(n) => f for (f, n) in zip(ac.functions, ac.names))
 init_func(ac::ApplyColwise{<:Tuple}, t::Columns) =
-    Tuple(Symbol(s, :_, n) => s => f for s in colnames(t), (f, n) in zip(ac.functions, ac.names))
+    ac.stack ? dd -> Columns(colnames(t), ([f(x) for x in columns(dd)] for f in ac.functions)...; names = vcat(ac.variable, ac.names)) :
+        Tuple(Symbol(s, :_, n) => s => f for s in colnames(t), (f, n) in zip(ac.functions, ac.names))
 init_func(ac::ApplyColwise, t::Columns) =
-    Tuple(s => s => ac.functions for s in colnames(t))
+    ac.stack ? dd -> Columns(colnames(t), [ac.functions(x) for x in columns(dd)]; names = vcat(ac.variable, ac.names)) :
+        Tuple(s => s => ac.functions for s in colnames(t))
 init_func(ac::ApplyColwise, t::AbstractVector) = ac.functions
 
 """
-`summarize(f, t, by = pkeynames(t); select = excludecols(t, by))`
+`summarize(f, t, by = pkeynames(t); select = excludecols(t, by), stack = false, variable = :variable)`
 
 Apply summary functions column-wise to a table. Return a `NamedTuple` in the non-grouped case
-and a table in the grouped case.
+and a table in the grouped case. Use `stack=true` to stack results of the same summary function for different columns.
 
 # Examples
 
@@ -468,6 +473,15 @@ x    y    z
 ─────────────
 "a"  2.0  2.0
 "b"  6.0  2.0
+
+julia> summarize(mean, s, stack = true)
+Table with 4 rows, 3 columns:
+x    variable  mean
+───────────────────
+"a"  :y        2.0
+"a"  :z        2.0
+"b"  :y        6.0
+"b"  :z        2.0
 ```
 
 Use a `NamedTuple` to have different names for the summary functions:
@@ -485,8 +499,10 @@ julia> summarize(@NT(m = mean, s = std), t, select = :x)
 ```
 
 """
-function summarize(f, t, by = pkeynames(t); select = t isa AbstractIndexedTable ? excludecols(t, by) : valuenames(t))
-    groupby(ApplyColwise(f), t, by, select = select)
+function summarize(f, t, by = pkeynames(t); select = t isa AbstractIndexedTable ? excludecols(t, by) : valuenames(t), stack = false, variable = :variable)
+    flatten = stack && !(select isa Union{Int, Symbol})
+    s = groupby(ApplyColwise(f, stack = stack, variable = variable), t, by, select = select, flatten = flatten)
+    s isa Columns ? table(s, copy = false, presorted = true) : s
 end
 
 

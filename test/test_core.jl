@@ -998,6 +998,15 @@ end
     b = table(["a","a","b","b"], [1,3,5,7], [2,2,2,2], names = [:x, :y, :z], pkey = :x)
     @test summarize(mean, b) ==
         table(["a","b"], [2.0,6.0], [2.0,2.0], names = [:x, :y, :z], pkey = :x)
+    @test summarize((mean, std), a, stack = true) ==
+        table([:x, :y], [3.0, 2.0], [2.0, 0.0], names = [:variable, :mean, :std])
+    @test summarize(mean, a, stack = true) ==
+        table([:x, :y], [3.0, 2.0] names = [:variable, :mean])
+    @test summarize(mean, b, stack = true) ==
+        table(["a","a","b","b"], [:y,:z,:y,:z], [2.0,2.0,6.0,2.0], names = [:x, :variable, :mean], pkey = :x)
+    @test summarize((mean, sum), b, stack = true) ==
+        table(["a","a","b","b"], [:y,:z,:y,:z], [2.0,2.0,6.0,2.0], [4,4,12,4],
+        names = [:x, :variable, :mean, :sum], pkey = :x)
 end
 
 @testset "reshape" begin
