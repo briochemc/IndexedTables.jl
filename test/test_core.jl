@@ -1001,7 +1001,7 @@ end
     @test summarize((mean, std), a, stack = true) ==
         table([:x, :y], [3.0, 2.0], [2.0, 0.0], names = [:variable, :mean, :std])
     @test summarize(mean, a, stack = true) ==
-        table([:x, :y], [3.0, 2.0] names = [:variable, :mean])
+        table([:x, :y], [3.0, 2.0], names = [:variable, :mean])
     @test summarize(mean, b, stack = true) ==
         table(["a","a","b","b"], [:y,:z,:y,:z], [2.0,2.0,6.0,2.0], names = [:x, :variable, :mean], pkey = :x)
     @test summarize((mean, sum), b, stack = true) ==
