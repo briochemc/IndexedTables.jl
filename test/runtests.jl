@@ -4,6 +4,7 @@ using OnlineStats
 using DataValues
 import DataValues: NA
 using Base.Test
+using WeakRefStrings
 
 @testset "IndexedTables" begin
 

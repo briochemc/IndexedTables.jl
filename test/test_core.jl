@@ -41,6 +41,7 @@ let c = Columns(Columns(@NT(a=[1,2,3])) => Columns(@NT(b=["a","b","c"])))
     @test c != Columns(@NT(a=[1,2,3], b=["a","b","c"]))
     x = Columns([1], [1.0], WeakRefStrings.StringArray(["a"]))
     @test IndexedTables.arrayof(eltype(x)) == typeof(x)
+    @test IndexedTables.arrayof(WeakRefString{UInt8}) == WeakRefStrings.StringArray{WeakRefString{UInt8},1}
     @test typeof(similar(c, 10)) == typeof(similar(typeof(c), 10)) == typeof(c)
     @test length(similar(c, 10)) == 10
     @test issorted(c)

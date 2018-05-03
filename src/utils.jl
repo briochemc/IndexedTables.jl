@@ -252,7 +252,7 @@ Base.@pure function arrayof(S)
         Columns{T,namedtuple(fieldnames(T)...){map(arrayof, T.parameters)...}}
     elseif T<:DataValue
         DataValueArray{T.parameters[1],1}
-    elseif T<:String
+    elseif T<:Union{String,WeakRefString}
         StringArray{T, 1}
     elseif T<:Pair
         Columns{T, Pair{map(arrayof, T.parameters)...}}
