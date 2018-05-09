@@ -391,3 +391,7 @@ function isshared(x)
         end
     end
 end
+
+compact_mem(x) = x
+compact_mem(x::StringArray{String}) = convert(StringArray{WeakRefString{UInt8}}, x)
+compact_mem(x::Columns) = Columns(map(compact_mem, columns(x)))
