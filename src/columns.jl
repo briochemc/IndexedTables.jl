@@ -268,11 +268,22 @@ function _strip_pair(c::Columns{<:Pair})
     Columns(f..., s...)
 end
 
+function pooled(x)
+    PooledArray(x)
+end
+
+using WeakRefStrings
+
+function pooled(x::StringArray{String})
+    wx = convert(StringArray{WeakRefString}, x)
+    map(string, PooledArray(wx)) # runs once per unique value
+end
+
 function sortperm(c::Columns)
     cols = c.columns
     x = cols[1]
     if (eltype(x) <: AbstractString && !(x isa PooledArray)) || length(cols) > 1
-        pa = PooledArray(x)
+        pa = pooled(x)
         p = sortperm_fast(pa)
     else
         p = sortperm_fast(x)
