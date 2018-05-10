@@ -159,17 +159,17 @@ function sortperm_int_range(x::Vector{T}, rangelen, minval) where T<:Integer
 end
 
 # sort the values in v[i0:i1] in place, by array `by`
-function sort_sub_by!(v, i0, i1, by, order, temp)
+Base.@noinline function sort_sub_by!(v, i0, i1, by, order, temp)
     empty!(temp)
     sort!(v, i0, i1, MergeSort, order, temp)
 end
 
-function sort_sub_by!(v, i0, i1, by::PooledArray, order, temp)
+Base.@noinline function sort_sub_by!(v, i0, i1, by::PooledArray, order, temp)
     empty!(temp)
     sort!(v, i0, i1, MergeSort, order, temp)
 end
 
-function sort_sub_by!(v, i0, i1, by::Vector{T}, order, temp) where T<:Integer
+Base.@noinline function sort_sub_by!(v, i0, i1, by::Vector{T}, order, temp) where T<:Integer
     min = max = by[v[i0]]
     @inbounds for i = i0+1:i1
         val = by[v[i]]
@@ -391,3 +391,6 @@ function isshared(x)
         end
     end
 end
+
+compact_mem(x) = x
+compact_mem(x::StringArray{String}) = convert(StringArray{WeakRefString{UInt8}}, x)

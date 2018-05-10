@@ -272,14 +272,14 @@ function sortperm(c::Columns)
     cols = c.columns
     x = cols[1]
     if (eltype(x) <: AbstractString && !(x isa PooledArray)) || length(cols) > 1
-        pa = PooledArray(x)
+        pa = PooledArray(compact_mem(x))
         p = sortperm_fast(pa)
     else
         p = sortperm_fast(x)
     end
     if length(cols) > 1
         y = cols[2]
-        refine_perm!(p, cols, 1, x, y, 1, length(x))
+        refine_perm!(p, cols, 1, compact_mem(x), compact_mem(y), 1, length(x))
     end
     return p
 end
@@ -305,7 +305,7 @@ function refine_perm!(p, cols, c, x, y, lo, hi)
             sort_sub_by!(p, i, i1, y, order, temp)
             if c < nc-1
                 z = cols[c+2]
-                refine_perm!(p, cols, c+1, y, z, i, i1)
+                refine_perm!(p, cols, c+1, compact_mem(y), compact_mem(z), i, i1)
             end
         end
         i = i1+1
@@ -1293,3 +1293,7 @@ function init_inputs(f::Tup, input, gettype, isvec)
     # functions, input, output_eltype
     NT(fs...), rows(NT(xs...)), NT{output_eltypes...}
 end
+
+### utils
+
+compact_mem(x::Columns) = Columns(map(compact_mem, columns(x)))
