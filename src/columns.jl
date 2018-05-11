@@ -1295,3 +1295,7 @@ function init_inputs(f::Tup, input, gettype, isvec)
     # functions, input, output_eltype
     NT(fs...), rows(NT(xs...)), NT{output_eltypes...}
 end
+
+### utils
+
+compact_mem(x::Columns) = Columns(map(compact_mem, columns(x)))
