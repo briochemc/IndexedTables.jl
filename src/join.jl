@@ -878,6 +878,8 @@ function Base.merge(a::NextTable, b::NextTable;
 end
 
 opt_vcat(a, b) = vcat(a, b)
+opt_vcat(a::PooledArray{<:Any, <:Integer, 1},
+         b::PooledArray{<:Any, <:Integer,1}) = vcat(a, b)
 opt_vcat(a::AbstractArray{<:Any, 1}, b::PooledArray{<:Any, <:Integer, 1}) = vcat(is_approx_uniqs_less_than(a, length(b.pool)) ? PooledArray(a) : a, b)
 opt_vcat(a::PooledArray{<:Any, <:Integer, 1}, b::AbstractArray{<:Any, 1}) = vcat(a, is_approx_uniqs_less_than(b, length(a.pool)) ? PooledArray(b) : b)
 function is_approx_uniqs_less_than(itr, maxuniq)
