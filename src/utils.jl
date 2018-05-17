@@ -35,7 +35,7 @@ right(x, y) = y
 end
 
 @generated function ith_all(i, n::NamedTuple)
-    @show Expr(:block,
+    Expr(:block,
          :(@Base._inline_meta),
          Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:nfields(n) ]...))
 end
