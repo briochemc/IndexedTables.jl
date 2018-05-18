@@ -42,13 +42,7 @@ end
 
 @generated function foreach(f, xs::NTuple{N,Any}...) where N
     args = [:(xs[$j][i])  for j in 1:nfields(xs)]
-    :(Base.@nexprs $N i -> f($(args...)))
-end
-
-# ambiguity fix
-@generated function foreach(f, xs::NTuple{N}...) where N
-    args = [:(xs[$j][i])  for j in 1:nfields(xs)]
-    :(Base.@nexprs $N i -> f($(args...)))
+    :(Base.@nexprs $N i -> f($(args...)); nothing)
 end
 
 @generated function foreach(f, n::NamedTuple)
@@ -58,7 +52,7 @@ end
 @inline foreach(f, a::Pair) = (f(a.first); f(a.second))
 @inline foreach(f, a::Pair, b::Pair) = (f(a.first, b.first); f(a.second, b.second))
 
-@generated function foreach(f, n::Union{Tuple,NamedTuple}, m::Union{Tuple,NamedTuple})
+@generated function foreach(f, n::NamedTuple, m::NamedTuple)
     Expr(:block,
          :(@Base._inline_meta),
          [ Expr(:call, :f,
