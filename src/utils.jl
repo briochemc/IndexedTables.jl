@@ -45,6 +45,12 @@ end
     :(Base.@nexprs $N i -> f($(args...)))
 end
 
+# ambiguity fix
+@generated function foreach(f, xs::NTuple{N}...) where N
+    args = [:(xs[$j][i])  for j in 1:nfields(xs)]
+    :(Base.@nexprs $N i -> f($(args...)))
+end
+
 @generated function foreach(f, n::NamedTuple)
     Expr(:block, [ Expr(:call, :f, Expr(:., :n, Expr(:quote, fieldname(n,f)))) for f = 1:nfields(n) ]...)
 end
