@@ -40,9 +40,9 @@ end
          Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:nfields(n) ]...))
 end
 
-@inline function foreach(f, xs::NTuple{N}...) where N
+@generated function foreach(f, xs::NTuple{N}...) where N
     args = [:(xs[$j][i])  for j in 1:nfields(xs)]
-    :(Base.@exprs $N i -> f($(args...)))
+    :(Base.@nexprs $N i -> f($(args...)))
 end
 
 @generated function foreach(f, n::NamedTuple)
