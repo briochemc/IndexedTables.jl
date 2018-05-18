@@ -40,25 +40,13 @@ end
          Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:nfields(n) ]...))
 end
 
-@generated function foreach(f, xs::NTuple{N,Any}...) where N
-    args = [:(xs[$j][i])  for j in 1:nfields(xs)]
-    :(Base.@nexprs $N i -> f($(args...)); nothing)
-end
-
-@generated function foreach(f, n::NamedTuple)
-    Expr(:block, [ Expr(:call, :f, Expr(:., :n, Expr(:quote, fieldname(n,f)))) for f = 1:nfields(n) ]...)
+@generated function foreach(f, x::Union{NamedTuple, Tuple}, xs::Union{NamedTuple, Tuple}...)
+    args = [:(getfield(getfield(xs, $j), i))  for j in 1:nfields(xs)]
+    :(Base.@nexprs $(nfields(x)) i -> f(getfield(x, i), $(args...)); nothing)
 end
 
 @inline foreach(f, a::Pair) = (f(a.first); f(a.second))
 @inline foreach(f, a::Pair, b::Pair) = (f(a.first, b.first); f(a.second, b.second))
-
-@generated function foreach(f, n::NamedTuple, m::NamedTuple)
-    Expr(:block,
-         :(@Base._inline_meta),
-         [ Expr(:call, :f,
-                Expr(:call, :getfield, :n, f),
-                Expr(:call, :getfield, :m, f)) for f = 1:nfields(n) ]...)
-end
 
 fieldindex(x, i::Integer) = i
 fieldindex(x::NamedTuple, s::Symbol) = findfirst(x->x===s, fieldnames(x))
