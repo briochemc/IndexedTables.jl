@@ -620,13 +620,13 @@ function showtable(io::IO, t; header=nothing, cnames=colnames(t), divider=nothin
     reprs  = [ sprint(io->showcompact(io,columns(t)[j][i])) for i in rows, j in 1:nc ]
     strcnames = map(string, cnames)
     widths  = [ max(strwidth(get(strcnames, c, "")), isempty(reprs) ? 0 : maximum(map(strwidth, reprs[:,c]))) for c in 1:nc ]
-    if compact && sum(widths) + 2*nc > width
+    if compact && !isempty(widths) && sum(widths) + 2*nc > width
         return showmeta(io, t, cnames)
     end
     for c in 1:nc
         nm = get(strcnames, c, "")
         style = get(cstyle, c, nothing)
-        txt = c==nc ? nm : rpad(nm, widths[c]+(c==divider ? 1 : 2), " ")
+        txt = c==nc && divider!=nc ? nm : rpad(nm, widths[c]+(c==divider ? 1 : 2), " ")
         if style == nothing
             print(io, txt)
         else
@@ -639,14 +639,19 @@ function showtable(io::IO, t; header=nothing, cnames=colnames(t), divider=nothin
     end
     println(io)
     if divider !== nothing
-        print(io, "─"^(sum(widths[1:divider])+2*divider-1), "┼", "─"^(sum(widths[divider+1:end])+2*(nc-divider)-1))
+        print(io, "─"^(sum(widths[1:divider])+2*divider-1), "┼")
+        if !isempty(widths[divider+1:end])
+            print(io, "─"^(sum(widths[divider+1:end])+2*(nc-divider)-1))
+        end
     else
-        print(io, "─"^(sum(widths)+2*nc-2))
+        if !isempty(widths)
+            print(io, "─"^(sum(widths)+2*nc-2))
+        end
     end
     for r in 1:size(reprs,1)
         println(io)
         for c in 1:nc
-            print(io, c==nc ? reprs[r,c] : rpad(reprs[r,c], widths[c]+(c==divider ? 1 : 2), " "))
+            print(io, c==nc && nc!=divider ? reprs[r,c] : rpad(reprs[r,c], widths[c]+(c==divider ? 1 : 2), " "))
             if c == divider
                 print(io, "│ ")
             end
