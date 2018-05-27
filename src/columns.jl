@@ -930,6 +930,7 @@ function rename!(d::ColDict, col::Union{Symbol, Int}, newname)
     d.names[k] = newname
 end
 
+Base.push!(d::ColDict, key::AbstractString, x) = push!(d, Symbol(key), x)
 function Base.push!(d::ColDict, key::Union{Symbol, Int}, x)
     push!(d.names, key)
     push!(d.columns, rows(d.src, x))

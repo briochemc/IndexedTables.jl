@@ -3,6 +3,12 @@ import Base: tuple_type_cons, tuple_type_head, tuple_type_tail, in, ==, isless, 
              length, eltype, start, next, done, show
 using WeakRefStrings
 
+fastmap(f, xs...) = map(f, xs...)
+@generated function fastmap(f, xs::NTuple{N}...) where N
+    args = [:(xs[$j][i])  for j in 1:nfields(xs)]
+    :(Base.@ntuple $N i -> f($(args...)))
+end
+
 export @NT
 
 eltypes(::Type{Tuple{}}) = Tuple{}
@@ -24,8 +30,9 @@ right(x, y) = y
 
 # tuple and NamedTuple utilities
 
-@inline ith_all(i, ::Tuple{}) = ()
-@inline ith_all(i, as) = (as[1][i], ith_all(i, tail(as))...)
+@generated function ith_all(i, xs::Tuple)
+    :(Base.@ntuple $(nfields(xs)) j -> xs[j][i])
+end
 
 @generated function ith_all(i, n::NamedTuple)
     Expr(:block,
@@ -33,28 +40,13 @@ right(x, y) = y
          Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:nfields(n) ]...))
 end
 
-@inline foreach(f, a::Tuple) = _foreach(f, a[1], tail(a))
-@inline _foreach(f, x, ra) = (f(x); _foreach(f, ra[1], tail(ra)))
-@inline _foreach(f, x, ra::Tuple{}) = f(x)
-
-@generated function foreach(f, n::NamedTuple)
-    Expr(:block, [ Expr(:call, :f, Expr(:., :n, Expr(:quote, fieldname(n,f)))) for f = 1:nfields(n) ]...)
+@generated function foreach(f, x::Union{NamedTuple, Tuple}, xs::Union{NamedTuple, Tuple}...)
+    args = [:(getfield(getfield(xs, $j), i))  for j in 1:nfields(xs)]
+    :(Base.@nexprs $(nfields(x)) i -> f(getfield(x, i), $(args...)); nothing)
 end
 
 @inline foreach(f, a::Pair) = (f(a.first); f(a.second))
 @inline foreach(f, a::Pair, b::Pair) = (f(a.first, b.first); f(a.second, b.second))
-
-@inline foreach(f, a::Tuple, b::Tuple) = _foreach(f, a[1], b[1], tail(a), tail(b))
-@inline _foreach(f, x, y, ra, rb) = (f(x, y); _foreach(f, ra[1], rb[1], tail(ra), tail(rb)))
-@inline _foreach(f, x, y, ra::Tuple{}, rb) = f(x, y)
-
-@generated function foreach(f, n::Union{Tuple,NamedTuple}, m::Union{Tuple,NamedTuple})
-    Expr(:block,
-         :(@Base._inline_meta),
-         [ Expr(:call, :f,
-                Expr(:call, :getfield, :n, f),
-                Expr(:call, :getfield, :m, f)) for f = 1:nfields(n) ]...)
-end
 
 fieldindex(x, i::Integer) = i
 fieldindex(x::NamedTuple, s::Symbol) = findfirst(x->x===s, fieldnames(x))
