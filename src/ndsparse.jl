@@ -172,7 +172,9 @@ function ndsparse(::Val{:serial}, ks::Tup, vs::Union{Tup, AbstractVector};
    #                   intersect(colnames(I), colnames(d))))
    #    error("All column names, including index and data columns, must be distinct")
    #end
-    length(I) == length(d) || error("index and data must have the same number of elements")
+    if nfields(eltype(d)) !== 0
+        length(I) == length(d) || error("index and data must have the same number of elements")
+    end
 
     if !presorted && !issorted(I)
         p = sortperm(I)

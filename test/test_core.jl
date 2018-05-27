@@ -222,6 +222,18 @@ let x = NDSparse(Columns(x = [1,2,3], y = [4,5,6], z = [7,8,9]), [10,11,12])
 end
 
 # test showing
+
+@test repr(ndsparse(Columns([1]), Columns(()))) == """
+1-d NDSparse with 1 values (0-tuples):
+1 │
+──┼
+1 │ """
+
+@test repr(table()) == """
+Table with 0 rows, 0 columns:
+
+"""
+
 @test repr(NDSparse([1,2,3],[3,2,1],Float64[4,5,6])) == """
 2-d NDSparse with 3 values (Float64):
 1  2 │
