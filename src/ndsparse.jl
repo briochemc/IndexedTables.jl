@@ -217,6 +217,11 @@ ndsparse(c::Columns{<:Pair}; kwargs...) =
 # backwards compat
 NDSparse(idx::Columns, data; kwargs...) = ndsparse(idx, data; kwargs...)
 
+# Easy constructor to create a derivative table
+function ndsparse(t::NDSparse; presorted=true, copy=false)
+    ndsparse(keys(t), values(t), presorted=presorted, copy=copy)
+end
+
 # TableLike API
 Base.@pure function colnames(t::NDSparse)
     dnames = colnames(t.data)
