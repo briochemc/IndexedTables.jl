@@ -46,6 +46,9 @@ function _convert(::Type{NextTable}, x::NDSparse)
             presorted=true, copy=false)
 end
 
+ndsparse(t::NextTable; kwargs...) = _convert(NDSparse, t; kwargs...)
+table(t::NDSparse; kwargs...) = _convert(NextTable, t; kwargs...)
+
 include("sortperm.jl")
 include("indexing.jl") # x[y]
 include("selection.jl")
