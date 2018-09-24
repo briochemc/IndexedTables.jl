@@ -1,4 +1,6 @@
 using OnlineStats
+using Statistics
+
 export groupreduce, groupby, aggregate, aggregate_vec, summarize, ApplyColwise
 
 """
@@ -123,7 +125,7 @@ end
 
 addname(v, name) = v
 addname(v::Tup, name::Type{<:NamedTuple}) = v
-addname(v, name::Type{<:NamedTuple}) = name(v)
+addname(v, name::Type{<:NamedTuple}) = name((v,))
 
 struct GroupReduce{F, S, T, P, N}
     f::F
@@ -137,11 +139,10 @@ struct GroupReduce{F, S, T, P, N}
         new{F, S, T, P, N}(f, key, data, perm, name, length(key))
 end
 
-Base.iteratorsize(::Type{<:GroupReduce}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:GroupReduce}) = Base.SizeUnknown()
 
-Base.start(iter::GroupReduce) = 1
-
-function Base.next(iter::GroupReduce, i1)
+function Base.iterate(iter::GroupReduce, i1=1)
+    i1 > iter.n && return nothing
     f, key, data, perm, n, name = iter.f, iter.key, iter.data, iter.perm, iter.n, iter.name
     val = init_first(f, data[perm[i1]])
     i = i1+1
@@ -151,8 +152,6 @@ function Base.next(iter::GroupReduce, i1)
     end
     (key[perm[i1]] => addname(val, name)), i
 end
-
-Base.done(iter::GroupReduce, state) = state > iter.n
 
 """
 `groupreduce(f, t[, by::Selection]; select::Selection)`
@@ -274,11 +273,10 @@ struct GroupBy
         new(f, key, data, perm, usekey, name, length(key))
 end
 
-Base.iteratorsize(::Type{<:GroupBy}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:GroupBy}) = Base.SizeUnknown()
 
-Base.start(::GroupBy) = 1
-
-function Base.next(iter::GroupBy, i1)
+function Base.iterate(iter::GroupBy, i1=1)
+    i1 > iter.n && return nothing
     f, key, data, perm, usekey, n, name = iter.f, iter.key, iter.data, iter.perm, iter.usekey, iter.n, iter.name
     i = i1+1
     while i <= n && roweq(key, perm[i], perm[i1])
@@ -289,8 +287,6 @@ function Base.next(iter::GroupBy, i1)
                    _apply_with_key(f, data, process_data)
     (key[perm[i1]] => addname(val, name)), i
 end
-
-Base.done(iter, state) = state > iter.n
 
 collectiontype(::Type{<:NDSparse}) = NDSparse
 collectiontype(::Type{<:NextTable}) = NextTable
@@ -431,23 +427,28 @@ end
 
 struct ApplyColwise{T}
     functions::T
-    names::Vector{Symbol}
+    names
     stack::Bool
     variable::Symbol
 end
 
-ApplyColwise(f; stack = false, variable = :variable) = ApplyColwise(f, [Symbol(f)], stack, variable)
-ApplyColwise(t::Tuple; stack = false, variable = :variable) = ApplyColwise(t, [map(Symbol,t)...], stack, variable)
+ApplyColwise(f; stack = false, variable = :variable) = ApplyColwise(f, [nicename(f)], stack, variable)
+ApplyColwise(t::Tuple; stack = false, variable = :variable) = ApplyColwise(t, [map(nicename,t)...], stack, variable)
 ApplyColwise(t::NamedTuple; stack = false, variable = :variable) = ApplyColwise(Tuple(values(t)), keys(t), stack, variable)
 
 init_func(f, t) = f
 init_func(ac::ApplyColwise{<:Tuple}, t::AbstractVector) =
     Tuple(Symbol(n) => f for (f, n) in zip(ac.functions, ac.names))
-init_func(ac::ApplyColwise{<:Tuple}, t::Columns) =
-    ac.stack ? dd -> Columns(colnames(t), ([f(x) for x in columns(dd)] for f in ac.functions)...; names = vcat(ac.variable, ac.names)) :
+function init_func(ac::ApplyColwise{<:Tuple}, t::Columns)
+    if ac.stack
+        dd -> Columns(collect(colnames(t)), ([f(x) for x in columns(dd)] for f in ac.functions)...; names = vcat(ac.variable, ac.names))
+    else
         Tuple(Symbol(s, :_, n) => s => f for s in colnames(t), (f, n) in zip(ac.functions, ac.names))
+    end
+end
+
 init_func(ac::ApplyColwise, t::Columns) =
-    ac.stack ? dd -> Columns(colnames(t), [ac.functions(x) for x in columns(dd)]; names = vcat(ac.variable, ac.names)) :
+    ac.stack ? dd -> Columns(collect(colnames(t)), [ac.functions(x) for x in columns(dd)]; names = vcat(ac.variable, ac.names)) :
         Tuple(s => s => ac.functions for s in colnames(t))
 init_func(ac::ApplyColwise, t::AbstractVector) = ac.functions
 
@@ -521,7 +522,7 @@ Base.@deprecate aggregate_vec(
     fs::AbstractVector, x;
     names=nothing,
     by=pkeynames(x),
-    with=valuenames(x)) groupby(names === nothing ? (fs...) : (map(=>, names, fs)...,), x; select=with)
+    with=valuenames(x)) groupby(names === nothing ? (fs...,) : (map(=>, names, fs)...,), x; select=with)
 
 Base.@deprecate aggregate_vec(t; funs...) groupby(namedtuple(first.(funs)...)(last.(funs)...), t)
 
@@ -560,7 +561,7 @@ convertdim(x::NDSparse, d::Int, xlat, agg) = convertdim(x, d, xlat, agg=agg)
 sum(x::NDSparse) = sum(x.data)
 
 """
-`reducedim(f, x::NDSparse, dims)`
+`reduce(f, x::NDSparse, dims)`
 
 Drop `dims` dimension(s) and aggregate with `f`.
 
@@ -578,7 +579,7 @@ x  y  z │
 2  2  1 │ 5
 2  2  2 │ 6
 
-julia> reducedim(+, x, 1)
+julia> reduce(+, x, 1)
 2-d NDSparse with 3 values (Int64):
 y  z │
 ─────┼──
@@ -586,7 +587,7 @@ y  z │
 2  1 │ 7
 2  2 │ 9
 
-julia> reducedim(+, x, (1,3))
+julia> reduce(+, x, (1,3))
 1-d NDSparse with 2 values (Int64):
 y │
 ──┼───
@@ -595,20 +596,20 @@ y │
 
 ```
 """
-function reducedim(f, x::NDSparse, dims)
+function Base.reduce(f, x::NDSparse, dims)
     keep = setdiff([1:ndims(x);], map(d->fieldindex(x.index.columns,d), dims))
     if isempty(keep)
         throw(ArgumentError("to remove all dimensions, use `reduce(f, A)`"))
     end
-    groupreduce(f, x, (keep...))
+    groupreduce(f, x, (keep...,))
 end
 
-reducedim(f, x::NDSparse, dims::Symbol) = reducedim(f, x, [dims])
+Base.reduce(f, x::NDSparse, dims::Symbol) = reduce(f, x, [dims])
 
 """
 `reducedim_vec(f::Function, arr::NDSparse, dims)`
 
-Like `reducedim`, except uses a function mapping a vector of values to a scalar instead
+Like `reduce`, except uses a function mapping a vector of values to a scalar instead
 of a 2-argument scalar function.
 """
 function reducedim_vec(f, x::NDSparse, dims; with=valuenames(x))
@@ -616,7 +617,7 @@ function reducedim_vec(f, x::NDSparse, dims; with=valuenames(x))
     if isempty(keep)
         throw(ArgumentError("to remove all dimensions, use `reduce(f, A)`"))
     end
-    idxs, d = collect_columns(GroupBy(f, keys(x, (keep...)), rows(x, with), sortpermby(x, (keep...)))).columns
+    idxs, d = collect_columns(GroupBy(f, keys(x, (keep...,)), rows(x, with), sortpermby(x, (keep...,)))).columns
     NDSparse(idxs, d, presorted=true, copy=false)
 end
 

@@ -1,15 +1,16 @@
-using Base.Test
 import Base: tuple_type_cons, tuple_type_head, tuple_type_tail, in, ==, isless, convert,
-             length, eltype, start, next, done, show
+             length, eltype, show
 using WeakRefStrings
+
+import WeakRefStrings: StringArray
+
+(T::Type{<:StringArray})(::typeof(undef), args...) = T(args...)
 
 fastmap(f, xs...) = map(f, xs...)
 @generated function fastmap(f, xs::NTuple{N}...) where N
-    args = [:(xs[$j][i])  for j in 1:nfields(xs)]
+    args = [:(xs[$j][i])  for j in 1:fieldcount(typeof(xs))]
     :(Base.@ntuple $N i -> f($(args...)))
 end
-
-export @NT
 
 eltypes(::Type{Tuple{}}) = Tuple{}
 eltypes(::Type{T}) where {T<:Tuple} =
@@ -17,7 +18,7 @@ eltypes(::Type{T}) where {T<:Tuple} =
 eltypes(::Type{T}) where {T<:NamedTuple} = map_params(eltype, T)
 eltypes(::Type{T}) where T <: Pair = map_params(eltypes, T)
 eltypes(::Type{T}) where T<:AbstractArray{S, N} where {S, N} = S
-Base.@pure astuple(::Type{T}) where {T<:NamedTuple} = Tuple{T.parameters...}
+astuple(::Type{T}) where {T<:NamedTuple} = fieldstupletype(T)
 astuple(::Type{T}) where {T<:Tuple} = T
 
 # sizehint, making sure to return first argument
@@ -31,85 +32,29 @@ right(x, y) = y
 # tuple and NamedTuple utilities
 
 @generated function ith_all(i, xs::Tuple)
-    :(Base.@ntuple $(nfields(xs)) j -> xs[j][i])
+    :(Base.@ntuple $(fieldcount(xs)) j -> xs[j][i])
 end
 
 @generated function ith_all(i, n::NamedTuple)
     Expr(:block,
          :(@Base._inline_meta),
-         Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:nfields(n) ]...))
+         Expr(:tuple, [ Expr(:ref, Expr(:., :n, Expr(:quote, fieldname(n,f))), :i) for f = 1:fieldcount(n) ]...))
 end
 
 @generated function foreach(f, x::Union{NamedTuple, Tuple}, xs::Union{NamedTuple, Tuple}...)
-    args = [:(getfield(getfield(xs, $j), i))  for j in 1:nfields(xs)]
-    :(Base.@nexprs $(nfields(x)) i -> f(getfield(x, i), $(args...)); nothing)
+    args = [:(getfield(getfield(xs, $j), i))  for j in 1:length(xs)]
+    :(Base.@nexprs $(fieldcount(x)) i -> f(getfield(x, i), $(args...)); nothing)
 end
 
 @inline foreach(f, a::Pair) = (f(a.first); f(a.second))
 @inline foreach(f, a::Pair, b::Pair) = (f(a.first, b.first); f(a.second, b.second))
 
 fieldindex(x, i::Integer) = i
-fieldindex(x::NamedTuple, s::Symbol) = findfirst(x->x===s, fieldnames(x))
+fieldindex(x::NamedTuple, s::Symbol) = findfirst(x->x===s, fieldnames(typeof(x)))
 
 astuple(t::Tuple) = t
 
-@generated function astuple(n::NamedTuple)
-    Expr(:tuple, [ Expr(:., :n, Expr(:quote, fieldname(n,f))) for f = 1:nfields(n) ]...)
-end
-
-# lexicographic order product iterator
-
-import Base: length, eltype, start, next, done
-
-abstract type AbstractProdIterator end
-
-struct Prod2{I1, I2} <: AbstractProdIterator
-    a::I1
-    b::I2
-end
-
-product(a) = a
-product(a, b) = Prod2(a, b)
-eltype(::Type{Prod2{I1,I2}}) where {I1,I2} = Tuple{eltype(I1), eltype(I2)}
-length(p::AbstractProdIterator) = length(p.a)*length(p.b)
-
-function start(p::AbstractProdIterator)
-    s1, s2 = start(p.a), start(p.b)
-    s1, s2, (done(p.a,s1) || done(p.b,s2))
-end
-
-function prod_next(p, st)
-    s1, s2 = st[1], st[2]
-    v2, s2 = next(p.b, s2)
-    doneflag = false
-    if done(p.b, s2)
-        v1, s1 = next(p.a, s1)
-        if !done(p.a, s1)
-            s2 = start(p.b)
-        else
-            doneflag = true
-        end
-    else
-        v1, _ = next(p.a, s1)
-    end
-    return (v1,v2), (s1,s2,doneflag)
-end
-
-next(p::Prod2, st) = prod_next(p, st)
-done(p::AbstractProdIterator, st) = st[3]
-
-struct Prod{I1, I2<:AbstractProdIterator} <: AbstractProdIterator
-    a::I1
-    b::I2
-end
-
-product(a, b, c...) = Prod(a, product(b, c...))
-eltype(::Type{Prod{I1,I2}}) where {I1,I2} = tuple_type_cons(eltype(I1), eltype(I2))
-
-function next(p::Prod{I1,I2}, st) where {I1,I2}
-    x = prod_next(p, st)
-    ((x[1][1],x[1][2]...), x[2])
-end
+astuple(n::NamedTuple) = Tuple(n)
 
 # sortperm with counting sort
 
@@ -139,7 +84,7 @@ function sortperm_int_range(x::Vector{T}, rangelen, minval) where T<:Integer
     end
     cumsum!(where, where)
 
-    P = Vector{Int}(n)
+    P = Vector{Int}(undef, n)
     @inbounds for i = 1:n
         label = x[i] + offs
         wl = where[label]
@@ -211,21 +156,19 @@ end
 function append_n!(X, val, n)
     l = length(X)
     resize!(X, l+n)
-    for i in (1:n)+l
+    for i in (1:n) .+ l
         @inbounds X[i] = val
     end
     X
 end
 
-const _namedtuple_cache = Dict{Tuple{Vararg{Symbol}}, Type}()
+fieldstupletype(::Type{NamedTuple{N,T}}) where {N,T} = T
+fieldstupletype(T::Type{<:Tuple}) = T
+
+fieldtypes(x::Type) = fieldstupletype(x).parameters
+
 function namedtuple(fields...)
-    if haskey(_namedtuple_cache, fields)
-        return _namedtuple_cache[fields]
-    else
-        NT = eval(:(@NT($(fields...))))
-        _namedtuple_cache[fields] = NT
-        return NT
-    end
+    NamedTuple{fields}
 end
 
 """
@@ -239,16 +182,15 @@ Base.@pure function arrayof(S)
     if T == Union{}
         Vector{Union{}}
     elseif T<:Tuple
-        Columns{T, Tuple{map(arrayof, T.parameters)...}}
+        Columns{T, Tuple{map(arrayof, fieldtypes(T))...}}
     elseif T<:NamedTuple
-        if nfields(T) == 0
-            Columns{namedtuple(), namedtuple()}
+        if fieldcount(T) == 0
+            Columns{NamedTuple{(), Tuple{}}, NamedTuple{(), Tuple{}}}
         else
-            Columns{T,namedtuple(fieldnames(T)...){map(arrayof, T.parameters)...}}
+            Columns{T,NamedTuple{fieldnames(T), Tuple{map(arrayof, fieldtypes(T))...}}}
         end
-    elseif T<:DataValue
-        DataValueArray{T.parameters[1],1}
-    elseif T<:Union{String,WeakRefString}
+    elseif (T<:Union{Missing,String,WeakRefString} && Missing<:T) ||
+        T<:Union{String, WeakRefString}
         StringArray{T, 1}
     elseif T<:Pair
         Columns{T, Pair{map(arrayof, T.parameters)...}}
@@ -258,7 +200,7 @@ Base.@pure function arrayof(S)
 end
 
 @inline strip_unionall_params(T::UnionAll) = strip_unionall_params(T.body)
-@inline strip_unionall_params(T) = map(strip_unionall, T.parameters)
+@inline strip_unionall_params(T) = map(strip_unionall, fieldtypes(T))
 
 Base.@pure function promote_union(T::Type)
     if isa(T, Union)
@@ -269,7 +211,7 @@ Base.@pure function promote_union(T::Type)
 end
 
 Base.@pure function strip_unionall(T)
-    if isleaftype(T) || T == Union{}
+    if isconcretetype(T) || T == Union{}
         return T
     elseif isa(T, TypeVar)
         T.lb === Union{} && return strip_unionall(T.ub)
@@ -277,7 +219,7 @@ Base.@pure function strip_unionall(T)
     elseif T == Tuple
         return Any
     elseif T<:Tuple
-        if any(x->x <: Vararg, T.parameters)
+        if any(x->x <: Vararg, fieldtypes(T))
             # we only keep known-length tuples
             return Any
         else
@@ -287,8 +229,8 @@ Base.@pure function strip_unionall(T)
         if isa(T, Union)
             return promote_union(T)
         else
-            NT = namedtuple(fieldnames(T)...)
-            return NT{strip_unionall_params(T)...}
+            return NamedTuple{fieldnames(T),
+                              Tuple{strip_unionall_params(T)...}}
         end
     elseif isa(T, UnionAll)
         return Any
@@ -302,12 +244,12 @@ Base.@pure function strip_unionall(T)
 end
 
 Base.@pure function _promote_op(f, ::Type{S}) where S
-    t = Core.Inference.return_type(f, Tuple{Base._default_type(S)})
+    t = Core.Compiler.return_type(f, Tuple{Base._default_type(S)})
     strip_unionall(t)
 end
 
 Base.@pure function _promote_op(f, ::Type{S}, ::Type{T}) where {S,T}
-    t = Core.Inference.return_type(f, Tuple{Base._default_type(S),
+    t = Core.Compiler.return_type(f, Tuple{Base._default_type(S),
                                         Base._default_type(T)})
     strip_unionall(t)
 end
@@ -333,7 +275,7 @@ map_params(f, ::Type{T}) where T <: Pair{S1, S2} where {S1, S2} = Pair{f(S1), f(
 
 #function map_params{N}(f, T::Type{T} where T<:Tuple{Vararg{Any,N}}, S::Type{S} where S<: Tuple{Vararg{Any,N}})
 Base.@pure function map_params(f, ::Type{T}, ::Type{S}) where {T<:Tuple,S<:Tuple}
-    if nfields(T) != nfields(S)
+    if fieldcount(T) != fieldcount(S)
         MethodError(map_params, (typeof(f), T,S))
     end
     Tuple{_map_params(f, T,S)...}
@@ -342,22 +284,25 @@ end
 _tuple_type_head(T::Type{NT}) where {NT<: NamedTuple} = fieldtype(NT, 1)
 
 Base.@pure function _tuple_type_tail(T::Type{NT}) where NT<: NamedTuple
-    Tuple{Base.argtail(NT.parameters...)...}
+    Tuple{Base.argtail(fieldtypes(NT)...)...}
 end
 
-Base.@pure @generated function map_params(f, ::Type{T}, ::Type{S}) where {T<:NamedTuple,S<:NamedTuple}
+Base.@pure function map_params(f, ::Type{T}, ::Type{S}) where {T<:NamedTuple,S<:NamedTuple}
     if fieldnames(T) != fieldnames(S)
         MethodError(map_params, (T,S))
     end
-    if nfields(T) == 0 && nfields(S) == 0
+    if fieldcount(T) == 0 && fieldcount(S) == 0
         return T
     end
-    NT = Expr(:macrocall, :(NamedTuples.$(Symbol("@NT"))), fieldnames(T)...)
-    :($NT{_map_params(f, T, S)...})
+
+    NamedTuple{fieldnames(T),
+               map_params(f,
+                          fieldstupletype(T),
+                          fieldstupletype(S))}
 end
 
 @inline function concat_tup(a::NamedTuple, b::NamedTuple)
-    concat_tup_type(typeof(a), typeof(b))(a..., b...)
+    concat_tup_type(typeof(a), typeof(b))((a..., b...))
 end
 @inline concat_tup(a::Tup, b::Tup) = (a..., b...)
 @inline concat_tup(a::Tup, b) = (a..., b)
@@ -365,16 +310,16 @@ end
 @inline concat_tup(a, b) = (a..., b...)
 
 Base.@pure function concat_tup_type(T::Type{<:Tuple}, S::Type{<:Tuple})
-    Tuple{T.parameters..., S.parameters...}
+    Tuple{fieldtypes(T)..., fieldtypes(S)...}
 end
 
 Base.@pure function concat_tup_type(::Type{T}, ::Type{S}) where {
            T<:NamedTuple,S<:NamedTuple}
-    nfields(T) == 0 && nfields(S) == 0 ?
+    fieldcount(T) == 0 && fieldcount(S) == 0 ?
         namedtuple() :
         namedtuple(fieldnames(T)...,
-                   fieldnames(S)...){T.parameters...,
-                                     S.parameters...}
+                   fieldnames(S)...){Tuple{fieldtypes(T)...,
+                                           fieldtypes(S)...}}
 end
 
 Base.@pure function concat_tup_type(T::Type, S::Type)
@@ -398,3 +343,16 @@ end
 
 compact_mem(x) = x
 compact_mem(x::StringArray{String}) = convert(StringArray{WeakRefString{UInt8}}, x)
+
+#nonmissing(::Type{Union{Missing, T}}) where T = T
+
+function getsubfields(n::NamedTuple, fields)
+    fns = fieldnames(typeof(n))
+    NamedTuple{(fns[fields]...,)}(n)
+end
+getsubfields(t::Tuple, fields) = t[fields]
+
+# lexicographic order product iterator
+
+product(itr) = itr
+product(itrs...) = Base.Generator(reverse, Iterators.product(reverse(itrs)...))

@@ -152,7 +152,7 @@ function _join!(::Val{typ}, ::Val{grp}, ::Val{keepkeys}, f, I, data, ks, lout, r
                 # empty group
                 append!(data, map(x->init_group(), i:ll))
             else
-                append!(rnull_idx, (1:length(i:ll)) + length(data))
+                append!(rnull_idx, (1:length(i:ll)) .+ length(data))
                 _append!(Val{:left}(), f, data, lout, rout,
                        ldata, rdata, lperm[i:ll], 0, lnull, rnull)
             end
@@ -162,7 +162,7 @@ function _join!(::Val{typ}, ::Val{grp}, ::Val{keepkeys}, f, I, data, ks, lout, r
                 # empty group
                 append!(data, map(x->init_group(), j:rr))
             else
-                append!(lnull_idx, (1:length(j:rr)) + length(data))
+                append!(lnull_idx, (1:length(j:rr)) .+ length(data))
                 _append!(Val{:right}(), f, data, lout, rout,
                        ldata, rdata, 0, rperm[j:rr], lnull, rnull)
             end
@@ -171,8 +171,8 @@ function _join!(::Val{typ}, ::Val{grp}, ::Val{keepkeys}, f, I, data, ks, lout, r
     lnull_idx, rnull_idx
 end
 
-nullrow(t::Type{<:Tuple}) = tuple(map(x->x(), [t.parameters...])...)
-nullrow(t::Type{<:NamedTuple}) = t(map(x->x(), [t.parameters...])...)
+nullrow(::Type{T}) where {T <: Tuple} = Tuple(fieldtype(T, i)() for i = 1:fieldcount(T))
+nullrow(::Type{NamedTuple{names, T}}) where {names, T} = NamedTuple{names, T}(Tuple(fieldtype(T, i)() for i = 1:fieldcount(T)))
 nullrow(t::Type{<:DataValue}) = t()
 
 function init_join_output(typ, grp, f, ldata, rdata, left, keepkeys, lkey, rkey, init_group, accumulate)
@@ -453,18 +453,18 @@ function Base.join(f, left::Dataset, right::Dataset;
 
     if !isempty(lnull_idx) && lout !== nothing
         lnulls = zeros(Bool, length(lout))
-        lnulls[lnull_idx] = true
+        lnulls[lnull_idx] .= true
         lout = if lout isa Columns
             Columns(map(lout.columns) do col
                         if col isa DataValueArray
-                            col.isnull[lnull_idx] = true
+                            col.isna[lnull_idx] .= true
                         else
                             DataValueArray(col, lnulls)
                         end
                     end)
         else
             if lout isa DataValueArray
-                lout.isnull[lnull_idx] = true
+                lout.isna[lnull_idx] .= true
             else
                 DataValueArray(lout, lnulls)
             end
@@ -474,18 +474,18 @@ function Base.join(f, left::Dataset, right::Dataset;
 
     if !isempty(rnull_idx) && rout !== nothing
         rnulls = zeros(Bool, length(rout))
-        rnulls[rnull_idx] = true
+        rnulls[rnull_idx] .= true
         rout = if rout isa Columns
             Columns(map(rout.columns) do col
                         if col isa DataValueArray
-                            col.isnull[rnull_idx] = true
+                            col.isna[rnull_idx] .= true
                         else
                             DataValueArray(col, rnulls)
                         end
                     end)
         else
             if rout isa DataValueArray
-                rout.isnull[rnull_idx] = true
+                rout.isna[rnull_idx] .= true
             else
                 DataValueArray(rout, rnulls)
             end
@@ -769,7 +769,7 @@ function _merge!(K, data, x::NDSparse, y::NDSparse, agg)
             else
                 copyrow!(K, k, I, i)
                 data[k] = x.data[i]
-                if isa(agg, Void)
+                if isa(agg, Nothing)
                     k += 1
                     copyrow!(K, k, I, i)
                     copyrow!(data, k, y.data, j) # repeat the data
@@ -869,10 +869,12 @@ function Base.merge(a::Dataset, b) end
 function Base.merge(a::NextTable, b::NextTable;
                     pkey = pkeynames(a) == pkeynames(b) ? a.pkey : [])
 
-    if colnames(a) !== colnames(b) && Set(colnames(a)) == Set(colnames(b))
-        b = ColDict(b, copy=false)[(colnames(a)...)]
-    else
-        throw(ArgumentError("the tables don't have the same column names. Use `select` first."))
+    if colnames(a) != colnames(b)
+        if Set(collect(colnames(a))) == Set(collect(colnames(b)))
+            b = ColDict(b, copy=false)[(colnames(a)...,)]
+        else
+            throw(ArgumentError("the tables don't have the same column names. Use `select` first."))
+        end
     end
     table(map(opt_vcat, columns(a), columns(b)), pkey=pkey, copy=false)
 end
@@ -923,9 +925,9 @@ function _merge!(dst::NDSparse, src::NDSparse, f)
         ln = length(new)
         # resize and copy data into dst
         resize!(dst.index, ln)
-        copy!(dst.index, new.index)
+        copyto!(dst.index, new.index)
         resize!(dst.data, ln)
-        copy!(dst.data, new.data)
+        copyto!(dst.data, new.data)
     end
     return dst
 end
@@ -934,7 +936,7 @@ end
 
 function find_corresponding(Ap, Bp)
     matches = zeros(Int, length(Ap))
-    J = IntSet(1:length(Bp))
+    J = BitSet(1:length(Bp))
     for i = 1:length(Ap)
         for j in J
             if Ap[i] == Bp[j]
@@ -950,8 +952,8 @@ end
 
 function match_indices(A::NDSparse, B::NDSparse)
     if isa(A.index.columns, NamedTuple) && isa(B.index.columns, NamedTuple)
-        Ap = fieldnames(A.index.columns)
-        Bp = fieldnames(B.index.columns)
+        Ap = colnames(A.index)
+        Bp = colnames(B.index)
     else
         Ap = typeof(A).parameters[2].parameters
         Bp = typeof(B).parameters[2].parameters
@@ -1038,14 +1040,14 @@ function _broadcast!(f::Function, A::NDSparse, B::NDSparse, C::NDSparse; dimmap=
     end
     common = filter(i->C_inds[i] > 0, 1:ndims(A))
     C_common = C_inds[common]
-    B_common_cols = Columns(B.index.columns[common])
+    B_common_cols = Columns(getsubfields(B.index.columns, common))
     B_perm = sortperm(B_common_cols)
     if C_common == C_dims
         idx, iperm = _bcast_loop!(f, values(A), B, C, B_common_cols, B_perm)
         A = NDSparse(idx, values(A), copy=false, presorted=true)
         if !issorted(A.index)
             permute!(A.index, iperm)
-            copy!(A.data, A.data[iperm])
+            copyto!(A.data, A.data[iperm])
         end
     else
         # TODO
@@ -1137,3 +1139,7 @@ end
 
 broadcast(f::Function, x::NDSparse, y) = NDSparse(x.index, broadcast(f, x.data, y), presorted=true)
 broadcast(f::Function, y, x::NDSparse) = NDSparse(x.index, broadcast(f, y, x.data), presorted=true)
+
+Broadcast.broadcasted(f::Function, A::NDSparse, B::NDSparse) = broadcast(f, A, B)
+Broadcast.broadcasted(f::Function, A, B::NDSparse) = broadcast(f, A, B)
+Broadcast.broadcasted(f::Function, A::NDSparse, B) = broadcast(f, A, B)

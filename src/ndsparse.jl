@@ -1,4 +1,5 @@
 export AbstractNDSparse, NDSparse, ndsparse
+using SparseArrays
 
 abstract type AbstractNDSparse end
 
@@ -172,8 +173,9 @@ function ndsparse(::Val{:serial}, ks::Tup, vs::Union{Tup, AbstractVector};
    #                   intersect(colnames(I), colnames(d))))
    #    error("All column names, including index and data columns, must be distinct")
    #end
-    if nfields(eltype(d)) !== 0
-        length(I) == length(d) || error("index and data must have the same number of elements")
+    if !isconcretetype(eltype(d)) || fieldcount(eltype(d)) !== 0
+        length(I) == length(d) ||
+            error("index and data must have the same number of elements")
     end
 
     if !presorted && !issorted(I)
@@ -228,7 +230,7 @@ Base.@pure function colnames(t::NDSparse)
     if all(x->isa(x, Integer), dnames)
         dnames = map(x->x+ncols(t.index), dnames)
     end
-    vcat(colnames(t.index), dnames)
+    (colnames(t.index)..., dnames...,)
 end
 
 columns(nd::NDSparse) = concat_tup(columns(nd.index), columns(nd.data))
@@ -259,14 +261,14 @@ julia> pkeynames(x)
 
 ```
 """
-pkeynames(t::NDSparse) = (dimlabels(t)...)
+pkeynames(t::NDSparse) = (dimlabels(t)...,)
 
 # For an NDSparse, valuenames is either a tuple of fieldnames or a
 # single name for scalar values
 function valuenames(t::NDSparse)
     if isa(values(t), Columns)
         T = eltype(values(t))
-        ((ndims(t) + (1:nfields(eltype(values(t)))))...)
+        ((ndims(t) .+ (1:fieldcount(eltype(values(t)))))...,)
     else
         ndims(t) + 1
     end
@@ -295,6 +297,11 @@ function (==)(a::NDSparse, b::NDSparse)
     return a.index == b.index && a.data == b.data
 end
 
+function Base.isequal(a::NDSparse, b::NDSparse)
+    flush!(a); flush!(b)
+    return isequal(keys(a), keys(b)) && isequal(values(a), values(b))
+end
+
 function empty!(t::NDSparse)
     empty!(t.index)
     empty!(t.data)
@@ -304,7 +311,7 @@ function empty!(t::NDSparse)
 end
 
 _convert(::Type{<:Tuple}, tup::Tuple) = tup
-_convert(::Type{T}, tup::Tuple) where {T<:NamedTuple} = T(tup...)
+_convert(::Type{T}, tup::Tuple) where {T<:NamedTuple} = T(tup)
 convertkey(t::NDSparse{V,K,I}, tup::Tuple) where {V,K,I} = _convert(eltype(I), tup)
 
 ndims(t::NDSparse) = length(t.index.columns)
@@ -359,9 +366,8 @@ Returns an array of integers or symbols giving the labels for the dimensions of 
 """
 dimlabels(t::NDSparse) = dimlabels(typeof(t))
 
-start(a::NDSparse) = start(a.data)
-next(a::NDSparse, st) = next(a.data, st)
-done(a::NDSparse, st) = done(a.data, st)
+iterate(a::NDSparse) = iterate(a.data)
+iterate(a::NDSparse, st) = iterate(a.data, st)
 
 function permutedims(t::NDSparse, p::AbstractVector)
     if !(length(p) == ndims(t) && isperm(p))
@@ -381,7 +387,7 @@ function show(io::IO, t::NDSparse{T,D}) where {T,D}
         eltypeheader = "$(eltype(t))"
     else
         cnames = colnames(t)
-        nf = nfields(eltype(t))
+        nf = fieldcount(eltype(t))
         if eltype(t) <: NamedTuple
             eltypeheader = "$(nf) field named tuples"
         else
@@ -393,20 +399,18 @@ function show(io::IO, t::NDSparse{T,D}) where {T,D}
               cnames=cnames, divider=length(columns(keys(t))))
 end
 
-import Base: @md_str
-
 function showmeta(io, t::NDSparse, cnames)
     nc = length(columns(t))
     nidx = length(columns(keys(t)))
     nkeys = length(columns(values(t)))
 
     print(io,"    ")
-    with_output_format(:underline, println, io, "Dimensions")
+    printstyled(io, "Dimensions", color=:underline)
     metat = Columns(([1:nidx;], [Text(get(cnames, i, "<noname>")) for i in 1:nidx],
                      eltype.([columns(keys(t))...])))
     showtable(io, metat, cnames=["#", "colname", "type"], cstyle=fill(:bold, nc), full=true)
     print(io,"\n    ")
-    with_output_format(:underline, println, io, "Values")
+    printstyled(io, "Values", color=:underline)
     if isa(values(t), Columns)
         metat = Columns(([nidx+1:nkeys+nidx;], [Text(get(cnames, i, "<noname>")) for i in nidx+1:nkeys+nidx],
                          eltype.(Any[columns(values(t))...])))
@@ -416,22 +420,7 @@ function showmeta(io, t::NDSparse, cnames)
     end
 end
 
-abstract type SerializedNDSparse end
-
-function serialize(s::AbstractSerializer, x::NDSparse)
-    flush!(x)
-    Base.Serializer.serialize_type(s, SerializedNDSparse)
-    serialize(s, x.index)
-    serialize(s, x.data)
-end
-
-function deserialize(s::AbstractSerializer, ::Type{SerializedNDSparse})
-    I = deserialize(s)
-    d = deserialize(s)
-    NDSparse(I, d, presorted=true)
-end
-
-@noinline convert(::Type{NDSparse}, ks::ANY, vs::ANY; kwargs...) = ndsparse(ks, vs; kwargs...)
+@noinline convert(::Type{NDSparse}, @nospecialize(ks), @nospecialize(vs); kwargs...) = ndsparse(ks, vs; kwargs...)
 @noinline convert(T::Type{NDSparse}, c::Columns{<:Pair}; kwargs...) = convert(T, c.columns.first, c.columns.second; kwargs...)
 
 # map and convert
@@ -504,7 +493,12 @@ end
 
 # NDSparse uses lex order, Base arrays use colex order, so we need to
 # reorder the data. transpose and permutedims are used for this.
-convert(::Type{NDSparse}, m::SparseMatrixCSC) = NDSparse(findnz(m.')[[2,1,3]]..., presorted=true)
+function convert(::Type{NDSparse}, m::SparseMatrixCSC)
+    A = transpose(m)
+    nzidx = findall(!iszero, A)
+    I,J,V = getindex.(nzidx, 1), getindex.(nzidx, 2), A[nzidx]
+    NDSparse(J, I, V, presorted=true)
+end
 
 # special method to allow selection on
 # ndsparse with repeating names in keys and values
@@ -522,9 +516,9 @@ function convert(::Type{NDSparse}, a::AbstractArray{T}) where T
     nd = ndims(a)
     a = permutedims(a, [nd:-1:1;])
     data = reshape(a, (n,))
-    idxs = [ Vector{Int}(n) for i = 1:nd ]
+    idxs = [ Vector{Int}(undef, n) for i = 1:nd ]
     i = 1
-    for I in CartesianRange(size(a))
+    for I in CartesianIndices(size(a))
         for j = 1:nd
             idxs[j][i] = I[j]
         end

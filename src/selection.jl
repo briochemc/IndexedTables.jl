@@ -1,4 +1,4 @@
-export dropna, selectkeys, selectvalues
+export dropna, selectkeys, selectvalues, select
 
 """
 `select(t::Table, which::Selection)`
@@ -127,12 +127,12 @@ x  t     vx
 
 ```
 """
-function Base.select(t::AbstractIndexedTable, which)
+function select(t::AbstractIndexedTable, which)
     ColDict(t)[which]
 end
 
 # optimization
-@inline function Base.select(t::NextTable, which::Union{Symbol, Int})
+@inline function select(t::NextTable, which::Union{Symbol, Int})
     getfield(columns(t), which)
 end
 
@@ -271,7 +271,7 @@ function map(f, t::Dataset; select=nothing, copy=false, kwargs...)
     isa(x, Columns) ? table(x; copy=false, kwargs...) : x
 end
 
-function _nonna(t::Union{Columns, NextTable}, by=(colnames(t)...))
+function _nonna(t::Union{Columns, NextTable}, by=(colnames(t)...,))
     indxs = [1:length(t);]
     if !isa(by, Tuple)
         by = (by,)
@@ -280,9 +280,13 @@ function _nonna(t::Union{Columns, NextTable}, by=(colnames(t)...))
     d = ColDict(t)
     for (key, c) in zip(by, bycols)
         x = rows(t, c)
-        filt_by_col!(!isnull, x, indxs)
+       #filt_by_col!(!ismissing, x, indxs)
+       #if Missing <: eltype(x)
+       #    y = Array{nonmissing(eltype(x))}(undef, length(x))
+       #    y[indxs] = x[indxs]
+        filt_by_col!(!isna, x, indxs)
         if isa(x, Array{<:DataValue})
-            y = Array{eltype(eltype(x))}(length(x))
+            y = Array{eltype(eltype(x))}(undef, length(x))
             y[indxs] = map(get, x[indxs])
             x = y
         elseif isa(x, DataValueArray)
@@ -344,8 +348,8 @@ julia> typeof(column(dropna(t,:x), :x))
 Array{Int64,1}
 ```
 """
-function dropna(t::Dataset, by=(colnames(t)...))
-    subtable(_nonna(t, by)...)
+function dropna(t::Dataset, by=(colnames(t)...,))
+    subtable(_nonna(t, by)...,)
 end
 
 filt_by_col!(f, col, indxs) = filter!(i->f(col[i]), indxs)
@@ -451,7 +455,7 @@ n    t    │
 """
 function Base.filter(fn, t::Dataset; select=valuenames(t))
     x = rows(t, select)
-    indxs = find(map(fn, x))
+    indxs = findall(map(fn, x))
     subtable(t, indxs, presorted=true)
 end
 

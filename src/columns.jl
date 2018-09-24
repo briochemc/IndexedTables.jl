@@ -1,8 +1,6 @@
-using Compat
-
 import Base:
-    linearindexing, push!, size, sort, sort!, permute!, issorted, sortperm,
-    summary, resize!, vcat, serialize, deserialize, append!, copy!, view
+    push!, size, sort, sort!, permute!, issorted, sortperm,
+    summary, resize!, vcat, append!, copyto!, view
 
 export Columns, colnames, ncols, ColDict, insertafter!, insertbefore!, @cols, setcol, pushcol, popcol, insertcol, insertcolafter, insertcolbefore, renamecol
 export map_rows
@@ -34,19 +32,24 @@ struct Columns{D<:Union{Tup, Pair}, C<:Union{Tup, Pair}} <: AbstractVector{D}
     end
 end
 
-function Columns(cols::AbstractVector...; names::Union{Vector,Tuple{Vararg{Any}},Void}=nothing)
-    if isa(names, Void) || any(x->!(x isa Symbol), names)
+function Columns(cols::AbstractVector...; names::Union{Vector,Tuple{Vararg{Any}},Nothing}=nothing)
+    if isa(names, Nothing) || any(x->!(x isa Symbol), names)
         Columns{eltypes(typeof(cols)),typeof(cols)}(cols)
     else
-        dt = eval(:(@NT($(names...)))){map(eltype, cols)...}
-        ct = eval(:(@NT($(names...)))){map(typeof, cols)...}
-        Columns{dt,ct}(ct(cols...))
+        dt = NamedTuple{(names...,), Tuple{map(eltype, cols)...}}
+        ct = NamedTuple{(names...,), Tuple{map(typeof, cols)...}}
+        Columns{dt,ct}(ct((cols...,)))
     end
 end
 
-Columns(; pairs...) = Columns(map(x->x[2],pairs)..., names=Symbol[x[1] for x in pairs])
+function Columns(; kws...)
+    Columns(values(kws)..., names=collect(keys(kws)))
+end
 
 Columns(c::Union{Tup, Pair}) = Columns{eltypes(typeof(c)),typeof(c)}(c)
+
+# There is a StackOverflow bug in this case in Base.unaliascopy
+Base.copy(c::Columns{<:Union{NamedTuple{(),Tuple{}}, Tuple{}}}) = c
 
 # IndexedTable-like API
 
@@ -113,7 +116,7 @@ julia> colnames(ndsparse(Columns(x=[1,2,3]), Columns([3,4,5],[6,7,8])))
 """
 function colnames end
 
-Base.@pure colnames(t::AbstractVector) = [1]
+Base.@pure colnames(t::AbstractVector) = (1,)
 columns(v::AbstractVector) = v
 
 Base.@pure colnames(t::Columns) = fieldnames(eltype(t))
@@ -190,7 +193,7 @@ julia> ncols(ndsparse(d, [7,8,9]))
 ```
 """
 function ncols end
-ncols(c::Columns) = nfields(typeof(c.columns))
+ncols(c::Columns) = fieldcount(typeof(c.columns))
 ncols(c::Columns{<:Pair, <:Pair}) = ncols(c.columns.first) => ncols(c.columns.second)
 ncols(c::AbstractArray) = 1
 
@@ -211,25 +214,28 @@ function similar(c::Columns{D,C}, n::Integer) where {D,C}
     Columns{D,typeof(cols)}(cols)
 end
 
-function Base.similar{T<:Columns}(::Type{T}, n::Int)::T
+function Base.similar(::Type{T}, n::Int)::T where {T<:Columns}
     T_cols = T.parameters[2]
-    f = T_cols <: Tuple ? tuple : T_cols
-    T(f(map(t->similar(t, n), T.parameters[2].parameters)...))
+    if T_cols <: Pair
+        return Columns(similar(T_cols.parameters[1], n) => similar(T_cols.parameters[2], n))
+    end
+    f = T_cols <: Tuple ? tuple : T_cols∘tuple
+    T(f(map(t->similar(t, n), fieldtypes(T_cols))...))
 end
 
 function convert(::Type{Columns}, x::AbstractArray{<:NTuple{N,Any}}) where N
-    eltypes = (eltype(x).parameters...)
-    copy!(Columns(map(t->Vector{t}(length(x)), eltypes)), x)
+    eltypes = (eltype(x).parameters...,)
+    copyto!(Columns(map(t->Vector{t}(undef, length(x)), eltypes)), x)
 end
 
-function convert(::Type{Columns}, x::AbstractArray{<:NamedTuple})
-    eltypes = (eltype(x).parameters...)
-    copy!(Columns(map(t->Vector{t}(length(x)), eltypes)..., names=fieldnames(eltype(x))), x)
+function convert(::Type{Columns}, x::AbstractArray{<:NamedTuple{names, typs}}) where {names,typs}
+    eltypes = typs.parameters
+    copyto!(Columns(map(t->Vector{t}(undef, length(x)), eltypes)..., names=fieldnames(eltype(x))), x)
 end
 
 
 getindex(c::Columns{D}, i::Integer) where {D<:Tuple} = ith_all(i, c.columns)
-getindex(c::Columns{D}, i::Integer) where {D<:NamedTuple} = D(ith_all(i, c.columns)...)
+getindex(c::Columns{D}, i::Integer) where {D<:NamedTuple} = D(ith_all(i, c.columns))
 getindex(c::Columns{D}, i::Integer) where {D<:Pair} = getindex(c.columns.first, i) => getindex(c.columns.second, i)
 
 getindex(c::Columns, p::AbstractVector) = Columns(_map(c->c[p], c.columns))
@@ -242,7 +248,7 @@ view(c::Columns, I) = Columns(_map(a->view(a, I), c.columns))
 
 append!(I::Columns, J::Columns) = (foreach(append!, I.columns, J.columns); I)
 
-copy!(I::Columns, J::Columns) = (foreach(copy!, I.columns, J.columns); I)
+copyto!(I::Columns, J::Columns) = (foreach(copyto!, I.columns, J.columns); I)
 
 resize!(I::Columns, n::Int) = (foreach(c->resize!(c,n), I.columns); I)
 
@@ -322,7 +328,7 @@ function permute!(c::Columns, p::AbstractVector)
         if isa(v, PooledArrays.PooledArray) || isa(v, StringArray{String})
             permute!(v, p)
         else
-            copy!(v, v[p])
+            copyto!(v, v[p])
         end
     end
     return c
@@ -332,7 +338,7 @@ sort!(c::Columns) = permute!(c, sortperm(c))
 sort(c::Columns) = c[sortperm(c)]
 
 function Base.vcat(c::Columns, cs::Columns...)
-    fns = map(fieldnames, (map(x->x.columns, (c, cs...))))
+    fns = map(fieldnames∘typeof, (map(x->x.columns, (c, cs...))))
     f1 = fns[1]
     for f2 in fns[2:end]
         if f1 != f2
@@ -346,36 +352,6 @@ end
 function Base.vcat(c::Columns{<:Pair}, cs::Columns{<:Pair}...)
     Columns(vcat(c.columns.first, (x.columns.first for x in cs)...) =>
             vcat(c.columns.second, (x.columns.second for x in cs)...))
-end
-
-
-abstract type SerializedColumns end
-
-function serialize(s::AbstractSerializer, c::Columns)
-    Base.Serializer.serialize_type(s, SerializedColumns)
-    serialize(s, eltype(c) <: NamedTuple)
-    serialize(s, isa(c.columns, NamedTuple))
-    serialize(s, fieldnames(c.columns))
-    for col in c.columns
-        serialize(s, col)
-    end
-end
-
-function deserialize(s::AbstractSerializer, ::Type{SerializedColumns})
-    Dnamed = deserialize(s)
-    Cnamed = deserialize(s)
-    fn = deserialize(s)
-    cols = Any[ deserialize(s) for i = 1:length(fn) ]
-    if Cnamed
-        c = Columns(cols..., names = fn)
-        if !Dnamed
-            dt = eltypes(typeof((c.columns...,)))
-            c = Columns{dt,typeof(c.columns)}(c.columns)
-        end
-    else
-        c = Columns(cols...)
-    end
-    return c
 end
 
 # fused indexing operations
@@ -398,7 +374,7 @@ pushrow!(to::Columns, from::Columns, i) = foreach((a,b)->push!(a, b[i]), to.colu
 pushrow!(to::AbstractArray, from::AbstractArray, i) = push!(to, from[i])
 
 @generated function rowless(c::Columns{D,C}, i, j) where {D,C}
-    N = length(C.parameters)
+    N = fieldcount(C)
     ex = :(cmpelts(getfield(c.columns,$N), i, j) < 0)
     for n in N-1:-1:1
         ex = quote
@@ -411,7 +387,7 @@ pushrow!(to::AbstractArray, from::AbstractArray, i) = push!(to, from[i])
 end
 
 @generated function roweq(c::Columns{D,C}, i, j) where {D,C}
-    N = length(C.parameters)
+    N = fieldcount(C)
     ex = :(cmpelts(getfield(c.columns,1), i, j) == 0)
     for n in 2:N
         ex = :(($ex) && (cmpelts(getfield(c.columns,$n), i, j)==0))
@@ -424,7 +400,7 @@ end
 # uses number of columns from `d`, assuming `c` has more or equal
 # dimensions, for broadcast joins.
 @generated function rowcmp(c::Columns, i, d::Columns{D}, j) where D
-    N = length(D.parameters)
+    N = fieldcount(D)
     ex = :(cmp(getfield(c.columns,$N)[i], getfield(d.columns,$N)[j]))
     for n in N-1:-1:1
         ex = quote
@@ -657,8 +633,8 @@ lowerselection(t, s::Tuple)              = map(x -> lowerselection(t, x), s)
 lowerselection(t, s::Not)                = excludecols(t, lowerselection(t, s.cols))
 lowerselection(t, s::Keys)               = lowerselection(t, IndexedTables.pkeynames(t))
 lowerselection(t, s::Between)            = Tuple(colindex(t, s.first):colindex(t, s.last))
-lowerselection(t, s::Function)           = colindex(t, Tuple(filter(s, colnames(t))))
-lowerselection(t, s::Regex)              = lowerselection(t, x -> ismatch(s, string(x)))
+lowerselection(t, s::Function)           = colindex(t, Tuple(filter(s, collect(colnames(t)))))
+lowerselection(t, s::Regex)              = lowerselection(t, x -> occursin(s, string(x)))
 
 function lowerselection(t, s::All)
     s.cols == () && return lowerselection(t, valuenames(t))
@@ -684,11 +660,11 @@ function colindex(t, col::SpecialSelector)
     colindex(t, lowerselection(t, col))
 end
 
-function _colindex(fnames::AbstractArray, col, default=nothing)
+function _colindex(fnames::Union{Tuple, AbstractArray}, col, default=nothing)
     if isa(col, Int) && 1 <= col <= length(fnames)
         return col
     elseif isa(col, Symbol)
-        idx = findfirst(fnames, col)
+        idx = something(findfirst(isequal(col), fnames), 0)
         idx > 0 && return idx
     elseif isa(col, Pair{<:Any, <:AbstractArray})
         return 0
@@ -722,7 +698,7 @@ function columns(c, sel::Union{Tuple, SpecialSelector})
     which = lowerselection(c, sel)
     cnames = colnames(c, which)
     if all(x->isa(x, Symbol), cnames)
-        tuplewrap = namedtuple(cnames...)
+        tuplewrap = namedtuple(cnames...)∘tuple
     else
         tuplewrap = tuple
     end
@@ -822,7 +798,7 @@ mutable struct ColDict{T}
     src::T
     names::Vector
     columns::Vector
-    copy::Union{Void, Bool}
+    copy::Union{Nothing, Bool}
 end
 
 """
@@ -834,7 +810,11 @@ To get the immutable iterator of the same type as `t`
 call `d[]`
 """
 function ColDict(t; copy=nothing)
-    ColDict(Int[], t, convert(Array{Any}, Base.copy(colnames(t))), Any[columns(t)...], copy)
+    cnames = colnames(t)
+    if cnames isa AbstractArray
+        cnames = Base.copy(cnames)
+    end
+    ColDict(Int[], t, convert(Array{Any}, collect(cnames)), Any[columns(t)...], copy)
 end
 
 function Base.getindex(d::ColDict{<:Columns})
@@ -1241,7 +1221,8 @@ function init_inputs(f, x, gettype, isvec) # normal functions
     f, x, gettype(f, x, isvec)
 end
 
-nicename(f) = Symbol(f)
+nicename(f::Function) = typeof(f).name.mt.name
+nicename(f) = Symbol(last(split(string(f), ".")))
 nicename(o::OnlineStat) = Symbol(typeof(o).name.name)
 
 function mapped_type(f, x, isvec)
@@ -1252,7 +1233,7 @@ init_funcs(f, isvec) = init_funcs((f,), isvec)
 
 function init_funcs(f::Tup, isvec)
     if isa(f, NamedTuple)
-        return init_funcs((map(Pair, fieldnames(f), f)...), isvec)
+        return init_funcs((map(Pair, fieldnames(typeof(f)), f)...,), isvec)
     end
 
     funcmap = map(f) do g
@@ -1276,12 +1257,12 @@ function init_funcs(f::Tup, isvec)
         f
     end
 
-    namedtuple(ns...)(fs...), ss
+    NamedTuple{(ns...,)}((fs...,)), ss
 end
 
 function init_inputs(f::Tup, input, gettype, isvec)
     if isa(f, NamedTuple)
-        return init_inputs((map(Pair, fieldnames(f), f)...), input, gettype, isvec)
+        return init_inputs((map(Pair, fieldnames(typeof(f)), f)...,), input, gettype, isvec)
     end
     fs, selectors = init_funcs(f, isvec)
 
@@ -1289,11 +1270,11 @@ function init_inputs(f::Tup, input, gettype, isvec)
 
     output_eltypes = map((f,x) -> gettype(f, x, isvec), fs, xs)
 
-    ns = fieldnames(fs)
+    ns = fieldnames(typeof(fs))
     NT = namedtuple(ns...)
 
     # functions, input, output_eltype
-    NT(fs...), rows(NT(xs...)), NT{output_eltypes...}
+    NT((fs...,)), rows(NT((xs...,))), NT{Tuple{output_eltypes...}}
 end
 
 ### utils

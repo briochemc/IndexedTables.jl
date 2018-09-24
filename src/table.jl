@@ -1,4 +1,4 @@
-import Base: setindex!, reduce, select
+import Base: setindex!, reduce
 import DataValues: dropna
 export NextTable, table, colnames, pkeynames, columns, pkeys, reindex, dropna
 
@@ -28,7 +28,7 @@ struct NextTable{C<:Columns} <: AbstractIndexedTable
     # Cache permutations by various subsets of columns
     perms::Vector{Perm}
     # store what percent of the data in each column is unique
-    cardinality::Vector{Nullable{Float64}}
+    cardinality::Vector{Union{Float64,Missing}}
 
     columns_buffer::Any
 end
@@ -188,7 +188,7 @@ function table(::Val{:serial}, cols::Tup;
                perms=Perm[],
                presorted=false,
                copy=true,
-               cardinality=fill(Nullable{Float64}(), length(cols)))
+               cardinality=fill(missing, length(cols)))
 
     cs = rows(cols)
 
@@ -199,7 +199,7 @@ function table(::Val{:serial}, cols::Tup;
     end
 
     if !presorted && !isempty(pkey)
-        pkeys = rows(cs, (pkey...))
+        pkeys = rows(cs, (pkey...,))
         if !issorted(pkeys)
             perm = sortperm(pkeys)
             if copy
@@ -252,7 +252,7 @@ table(c::Columns{<:Pair}; kwargs...) = convert(NextTable, c.columns.first, c.col
 
 function table(cols::AbstractArray...; names=nothing, kwargs...)
     if isa(names, AbstractArray) && all(x->isa(x, Symbol), names)
-        cs = namedtuple(names...)(cols...)
+        cs = namedtuple(names...)(cols)
     else
         cs = cols
     end
@@ -301,10 +301,11 @@ function Base.empty!(t::NextTable)
     t
 end
 Base.:(==)(a::NextTable, b::NextTable) = rows(a) == rows(b)
+Base.isequal(a::NextTable, b::NextTable) = isequal(rows(a), rows(b))
 
 Base.getindex(t::NextTable, i::Integer) = getindex(t.columns, i)
 Base.getindex(t::NextTable, i::Colon) = copy(t)
-Base.endof(t::NextTable) = length(t)
+Base.lastindex(t::NextTable) = length(t)
 
 function Base.view(t::NextTable, I)
     t.pkey == Int64[] || eltype(I) == Bool || issorted(I) ||
@@ -317,9 +318,8 @@ function Base.view(t::NextTable, I)
 end
 
 Base.length(t::NextTable) = length(t.columns)
-Base.start(t::NextTable) = start(t.columns)
-Base.next(t::NextTable, i) = next(t.columns, i)
-Base.done(t::NextTable, i) = done(t.columns, i)
+Base.iterate(t::NextTable, i) = iterate(t.columns, i)
+Base.iterate(t::NextTable) = iterate(t.columns)
 function getindex(t::NextTable, idxs::AbstractVector{<:Integer})
     if t.pkey == Int64[] || eltype(idxs) == Bool || issorted(idxs)
        #perms = map(t.perms) do p
@@ -339,7 +339,7 @@ function Base.getindex(d::ColDict{<:AbstractIndexedTable}, key::Tuple)
     idx = [colindex(t, k) for k in key]
     pkey = Int[]
     for (i, pk) in enumerate(t.pkey)
-        j = findfirst(idx, pk)
+        j = something(findfirst(isequal(pk), idx), 0)
         if j > 0
             push!(pkey, j)
         end
@@ -353,7 +353,8 @@ end
 
 function ColDict(t::AbstractIndexedTable; copy=nothing)
     ColDict(Base.copy(t.pkey), t,
-            Base.copy(colnames(t)), Any[columns(t)...], copy)
+            convert(Array{Any}, Base.copy(collect(colnames(t)))),
+            Any[columns(t)...], copy)
 end
 
 function Base.getindex(d::ColDict{<:AbstractIndexedTable})
@@ -371,7 +372,7 @@ function primaryperm(t::NextTable)
     Perm(t.pkey, Base.OneTo(length(t)))
 end
 
-permcache(t::NextTable) = [primaryperm(t), t.perms;]
+permcache(t::NextTable) = vcat(primaryperm(t), t.perms)
 cacheperm!(t::NextTable, p) = push!(t.perms, p)
 
 """
@@ -404,14 +405,14 @@ julia> pkeys(t)
 """
 function pkeynames(t::AbstractIndexedTable)
     if eltype(t) <: NamedTuple
-        (colnames(t)[t.pkey]...)
+        (colnames(t)[t.pkey]...,)
     else
-        (t.pkey...)
+        (t.pkey...,)
     end
 end
 
 # for a table, selecting the "value" means selecting all fields
-valuenames(t::AbstractIndexedTable) = (colnames(t)...)
+valuenames(t::AbstractIndexedTable) = (colnames(t)...,)
 
 """
     pkeys(itr::Table)
@@ -559,7 +560,7 @@ function excludecols(t, cols)
             mask[i] = false
         end
     end
-    ((1:length(ns))[mask]...)
+    ((1:length(ns))[mask]...,)
 end
 
 """
@@ -587,8 +588,6 @@ end
 convert(T::Type{NextTable}, c::Columns{<:Pair}; kwargs...) = convert(T, c.columns.first, c.columns.second; kwargs...)
 # showing
 
-import Base.Markdown.with_output_format
-
 global show_compact_when_wide = true
 function set_show_compact!(flag=true)
     global show_compact_when_wide
@@ -596,6 +595,7 @@ function set_show_compact!(flag=true)
 end
 
 function showtable(io::IO, t; header=nothing, cnames=colnames(t), divider=nothing, cstyle=[], full=false, ellipsis=:middle, compact=show_compact_when_wide)
+    cnames = collect(cnames)
     height, width = displaysize(io)
     showrows = height-5 - (header !== nothing)
     n = length(t)
@@ -617,9 +617,10 @@ function showtable(io::IO, t; header=nothing, cnames=colnames(t), divider=nothin
         end
     end
     nc = length(columns(t))
-    reprs  = [ sprint(io->showcompact(io,columns(t)[j][i])) for i in rows, j in 1:nc ]
+
+    reprs  = [ sprint(io->show(IOContext(io, :compact => true), columns(t)[j][i])) for i in rows, j in 1:nc ]
     strcnames = map(string, cnames)
-    widths  = [ max(strwidth(get(strcnames, c, "")), isempty(reprs) ? 0 : maximum(map(strwidth, reprs[:,c]))) for c in 1:nc ]
+    widths  = [ max(textwidth(get(strcnames, c, "")), isempty(reprs) ? 0 : maximum(map(textwidth, reprs[:,c]))) for c in 1:nc ]
     if compact && !isempty(widths) && sum(widths) + 2*nc > width
         return showmeta(io, t, cnames)
     end
@@ -630,7 +631,7 @@ function showtable(io::IO, t; header=nothing, cnames=colnames(t), divider=nothin
         if style == nothing
             print(io, txt)
         else
-            with_output_format(style, print, io, txt)
+            Base.with_output_color(print, style, io, txt)
         end
         if c == divider
             print(io, "│")

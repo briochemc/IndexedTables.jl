@@ -55,7 +55,7 @@ end
 function _getindex(t::NDSparse, idxs)
     I = t.index
     cs = astuple(I.columns)
-    if nfields(idxs) !== nfields(I.columns)
+    if fieldcount(typeof(idxs)) !== fieldcount(typeof(I.columns))
         error("wrong number of indices")
     end
     for idx in idxs
@@ -64,7 +64,7 @@ function _getindex(t::NDSparse, idxs)
     out = convert(Vector{Int32}, range_estimate(I, idxs))
     filter!(i->row_in(cs, i, idxs), out)
     keepdims = filter(i->eltype(columns(t.index)[i]) != typeof(idxs[i]), 1:length(idxs))
-    NDSparse(Columns(map(x->x[out], I.columns[keepdims])), t.data[out], presorted=true)
+    NDSparse(Columns(map(x->x[out], getsubfields(I.columns, keepdims))), t.data[out], presorted=true)
 end
 
 # iterators over indices - lazy getindex
@@ -80,7 +80,7 @@ function where(d::NDSparse, idxs::Vararg{Any,N}) where N
     cs = astuple(I.columns)
     data = d.data
     rng = range_estimate(I, idxs)
-    (data[i] for i in Compat.Iterators.Filter(r->row_in(cs, r, idxs), rng))
+    (data[i] for i in Iterators.Filter(r->row_in(cs, r, idxs), rng))
 end
 
 """
@@ -155,9 +155,9 @@ function _setindex!(d::NDSparse{T,D}, rhs::AbstractArray, idxs) where {T,D}
     data = d.data
     ll = length(I)
     p = product(idxs...)
-    s = start(p)
-    done(p, s) && return d
-    R, s = next(p, s)
+    elem = iterate(p)
+    elem === nothing && return d
+    R, s = elem
     i = j = 1
     L = I[i]
     while i <= ll
@@ -170,12 +170,14 @@ function _setindex!(d::NDSparse{T,D}, rhs::AbstractArray, idxs) where {T,D}
             i += 1
             L = I[i]
             j += 1
-            done(p, s) && break
-            R, s = next(p, s)
+            elem = iterate(p, s)
+            elem === nothing && break
+            R, s = elem
         else
             j += 1
-            done(p, s) && break
-            R, s = next(p, s)
+            elem = iterate(p, s)
+            elem === nothing && break
+            R, s = elem
         end
     end
     return d
