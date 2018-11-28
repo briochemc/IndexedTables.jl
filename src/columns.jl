@@ -2,10 +2,6 @@ import Base:
     push!, size, sort, sort!, permute!, issorted, sortperm,
     summary, resize!, vcat, append!, copyto!, view
 
-export Columns, colnames, ncols, ColDict, insertafter!, insertbefore!, @cols, setcol, pushcol, popcol, insertcol, insertcolafter, insertcolbefore, renamecol
-export map_rows
-export All, Not, Between, Keys
-
 """
 Wrapper around a (named) tuple of Vectors that acts like a Vector of (named) tuples.
 
@@ -81,7 +77,7 @@ Base.@pure colnames(t::Columns) = fieldnames(eltype(t))
 Base.@pure colnames(t::Columns{<:Pair, <:Pair}) = colnames(t.columns.first) => colnames(t.columns.second)
 
 """
-`columns(itr, select::Selection = All())`
+    columns(itr, select::Selection = All())
 
 Select one or more columns from an iterable of rows as a tuple of vectors.
 
@@ -92,14 +88,12 @@ available selection options and syntax.
 
 # Examples
 
-```
-t = table(1:2, 3:4; names = [:x, :y])
+    t = table(1:2, 3:4; names = [:x, :y])
 
-columns(t)
-columns(t, :x)
-columns(t, (:x,))
-columns(t, (:y, :x => -))
-```
+    columns(t)
+    columns(t, :x)
+    columns(t, (:x,))
+    columns(t, (:y, :x => -))
 """
 function columns end
 
@@ -212,8 +206,6 @@ function _strip_pair(c::Columns{<:Pair})
     (s isa AbstractVector) && (s = (s,))
     Columns(f..., s...)
 end
-
-using WeakRefStrings
 
 function sortperm(c::Columns)
     cols = c.columns
@@ -876,8 +868,6 @@ Rename multiple columns at a time.
 renamecol(t, args...) = @cols rename!(t, args...)
 
 ## Utilities for mapping and reduction with many functions / OnlineStats
-
-using OnlineStats
 
 @inline _apply(f::OnlineStat, g, x) = (fit!(g, x); g)
 @inline _apply(f::Tup, y::Tup, x::Tup) = map(_apply, f, y, x)

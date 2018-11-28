@@ -1,7 +1,3 @@
-using DataValues
-
-export groupjoin
-
 # product-join on equal lkey and rkey starting at i, j
 function joinequalblock(::Val{typ}, ::Val{grp}, f, I, data, lout, rout, lkey, rkey,
               ldata, rdata, lperm, rperm, init_group, accumulate, i,j) where {typ, grp}
@@ -384,7 +380,7 @@ function Base.join(f, left::Dataset, right::Dataset;
         data = concat_cols(lout, rout)
     end
 
-    if group && left isa NextTable && !(data isa Columns)
+    if group && left isa IndexedTable && !(data isa Columns)
         data = Columns(groups=data)
     end
     convert(collectiontype(left), I, data, presorted=true, copy=false)
@@ -432,8 +428,6 @@ for (fn, how) in [:naturaljoin =>     (:inner, false, concat_tup),
 
     how, group, f = how
 
-    @eval export $fn
-
     @eval function $fn(f, left::Dataset, right::Dataset; kwargs...)
         join(f, left, right; group=$group, how=$(Expr(:quote, how)), kwargs...)
     end
@@ -442,7 +436,6 @@ for (fn, how) in [:naturaljoin =>     (:inner, false, concat_tup),
         $fn($f, left, right; kwargs...)
     end
 end
-export innerjoin, asofjoin, groupjoin
 
 ## Joins
 
@@ -604,7 +597,7 @@ end
 
 
 """
-    merge(a::NextTable, b::NextTable; pkey)
+    merge(a::IndexedTable, b::IndexedTable; pkey)
 
 Merge rows of `a` with rows of `b` and remain ordered by the primary key(s).  `a` and `b` must
 have the same column names.
@@ -627,7 +620,7 @@ A provided function `agg` will aggregate values from `a` and `b` that have the s
 """
 function Base.merge(a::Dataset, b) end
 
-function Base.merge(a::NextTable, b::NextTable;
+function Base.merge(a::IndexedTable, b::IndexedTable;
                     pkey = pkeynames(a) == pkeynames(b) ? a.pkey : [])
 
     if colnames(a) != colnames(b)

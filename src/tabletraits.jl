@@ -1,5 +1,3 @@
-using TableTraits, TableTraitsUtils, IteratorInterfaceExtensions
-
 TableTraits.isiterabletable(x::NDSparse) = true
 
 function IteratorInterfaceExtensions.getiterator(source::NDSparse)
@@ -58,6 +56,6 @@ function table(iter; copy=false, kwargs...)
     if TableTraits.isiterable(iter)
         table(collect_columns(getiterator(iter)); copy=false, kwargs...)
     else
-        throw(ArgumentError("iter cannot be turned into a NextTable."))
+        throw(ArgumentError("iter cannot be turned into a IndexedTable."))
     end
 end
