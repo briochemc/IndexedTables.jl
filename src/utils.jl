@@ -233,13 +233,12 @@ Base.@pure function strip_unionall(T)
 end
 
 Base.@pure function _promote_op(f, ::Type{S}) where S
-    t = Core.Compiler.return_type(f, Tuple{Base._default_type(S)})
+    t = Core.Compiler.return_type(f, Tuple{S})
     strip_unionall(t)
 end
 
 Base.@pure function _promote_op(f, ::Type{S}, ::Type{T}) where {S,T}
-    t = Core.Compiler.return_type(f, Tuple{Base._default_type(S),
-                                        Base._default_type(T)})
+    t = Core.Compiler.return_type(f, Tuple{S, T})
     strip_unionall(t)
 end
 
