@@ -1,7 +1,3 @@
-import Base:
-    push!, size, sort, sort!, permute!, issorted, sortperm,
-    summary, resize!, vcat, append!, copyto!, view
-
 """
 Wrapper around a (named) tuple of Vectors that acts like a Vector of (named) tuples.
 
@@ -97,7 +93,6 @@ available selection options and syntax.
 """
 function columns end
 
-columns(c) = error("no columns defined for $(typeof(c))")
 columns(c::Columns) = c.columns
 
 # Array-like API
@@ -110,17 +105,14 @@ length(c::Columns{<:Pair, <:Pair}) = length(c.columns.first)
 ndims(c::Columns) = 1
 
 """
-`ncols(itr)`
+    ncols(itr)
 
 Returns the number of columns in `itr`.
 
 # Examples
 
-    ncols([1,2,3])
-    ncols(rows(([1,2,3],[4,5,6])))
-    ncols(table(([1,2,3],[4,5,6])))
-    ncols(table(@NT(x=[1,2,3],y=[4,5,6])))
-    ncols(ndsparse(d, [7,8,9]))
+    ncols([1,2,3]) == 1
+    ncols(rows(([1,2,3],[4,5,6]))) == 2
 """
 function ncols end
 ncols(c::Columns) = fieldcount(typeof(c.columns))
@@ -184,21 +176,7 @@ resize!(I::Columns, n::Int) = (foreach(c->resize!(c,n), I.columns); I)
 
 _sizehint!(c::Columns, n::Integer) = (foreach(c->_sizehint!(c,n), c.columns); c)
 
-function ==(x::Columns, y::Columns)
-    nc = length(x.columns)
-    length(y.columns) == nc || return false
-    fieldnames(eltype(x)) == fieldnames(eltype(y)) || return false
-    n = length(x)
-    length(y) == n || return false
-    for i in 1:nc
-        x.columns[i] == y.columns[i] || return false
-    end
-    return true
-end
-
-==(x::Columns{<:Pair}, y::Columns) = false
-==(x::Columns, y::Columns{<:Pair}) = false
-==(x::Columns{<:Pair}, y::Columns{<:Pair}) = (x.columns.first == y.columns.first) && (x.columns.second == y.columns.second)
+==(x::Columns, y::Columns) = x.columns == y.columns
 
 function _strip_pair(c::Columns{<:Pair})
     f, s = map(columns, c.columns)
@@ -368,7 +346,7 @@ end
 # map
 
 """
-`map_rows(f, c...)`
+    map_rows(f, c...)
 
 Transform collection `c` by applying `f` to each element. For multiple collection arguments, apply `f`
 elementwise. Collect output as `Columns` if `f` returns
@@ -449,7 +427,7 @@ struct Between{T1 <: Union{Int, Symbol}, T2 <: Union{Int, Symbol}}
     last::T2
 end
 
-const SpecialSelector = Union{Not, All, Keys, Between, Function, Regex}
+const SpecialSelector = Union{Not, All, Keys, Between, Function, Regex, Type}
 
 hascolumns(t, s) = true
 hascolumns(t, s::Symbol) = s in colnames(t)
@@ -458,6 +436,7 @@ hascolumns(t, s::Tuple) = all(hascolumns(t, x) for x in s)
 hascolumns(t, s::Not) = hascolumns(t, s.cols)
 hascolumns(t, s::Between) = hascolumns(t, s.first) && hascolumns(t, s.last)
 hascolumns(t, s::All) = all(hascolumns(t, x) for x in s.cols)
+hascolumns(t, s::Type) = any(x -> eltype(x) <: s, columns(t))
 
 lowerselection(t, s)                     = s
 lowerselection(t, s::Union{Int, Symbol}) = colindex(t, s)
@@ -467,6 +446,7 @@ lowerselection(t, s::Keys)               = lowerselection(t, IndexedTables.pkeyn
 lowerselection(t, s::Between)            = Tuple(colindex(t, s.first):colindex(t, s.last))
 lowerselection(t, s::Function)           = colindex(t, Tuple(filter(s, collect(colnames(t)))))
 lowerselection(t, s::Regex)              = lowerselection(t, x -> occursin(s, string(x)))
+lowerselection(t, s::Type)               = Tuple(findall(x -> eltype(x) <: s, columns(t)))
 
 function lowerselection(t, s::All)
     s.cols == () && return lowerselection(t, valuenames(t))

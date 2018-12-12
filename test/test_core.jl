@@ -1,5 +1,4 @@
-using Test, Random, Dates, IndexedTables, PooledArrays, SparseArrays, WeakRefStrings, LinearAlgebra, Statistics
-import IndexedTables: update!, pkeynames, pkeys, excludecols, sortpermby, primaryperm, best_perm_estimate, hascolumns, select
+
 
     c = Columns([1,1,1,2,2], [1,2,4,3,5])
     d = Columns([1,1,2,2,2], [1,3,1,4,5])
@@ -147,7 +146,7 @@ end
     @test collect(Base.pairs(a)) == [(1,1)=>10, (2,2)=>9, (2,3)=>8, (2,4)=>7]
     @test first(Base.pairs(a[:, 3])) == ((2,)=>8)
 
-    update!(x->x+10, a, 2, :)
+    IndexedTables.update!(x->x+10, a, 2, :)
     @test a == NDSparse([1,2,2,2], [1,2,3,4], [10,19,18,17])
 
     a[2,2:3] = 77
@@ -638,11 +637,18 @@ end
     @test map(t -> (1,2), table(Int[])) == table(Int[], Int[])
 end
 
+@testset "Original Join Testset" begin
     l = table([1, 1, 2, 2], [1, 2, 1, 2], [1, 2, 3, 4], names=[:a, :b, :c], pkey=(:a, :b))
     r = table([0, 1, 1, 3], [1, 1, 2, 2], [1, 2, 3, 4], names=[:a, :b, :d], pkey=(:a, :b))
     @test join(l, r) == table([1, 1], [1, 2], [1, 2], [2, 3], names=Symbol[:a, :b, :c, :d])
-    @test isequal(join(l, r, how=:left), table([1, 1, 2, 2], [1, 2, 1, 2], [1, 2, 3, 4], DataValueArray([2, 3, NA, NA]), names=Symbol[:a, :b, :c, :d]))
-    @test isequal(join(l, r, how=:outer), table([0, 1, 1, 2, 2, 3], [1, 1, 2, 1, 2, 2], DataValueArray([NA, 1, 2, 3, 4, NA]), DataValueArray([1, 2, 3, NA, NA, 4]), names=Symbol[:a, :b, :c, :d]))
+    @test isequal(
+        join(l, r, how=:left),
+        table((a=[1, 1, 2, 2], b=[1, 2, 1, 2], c=[1, 2, 3, 4], d=[2, 3, missing, missing]))
+    )
+    @test isequal(
+        join(l, r, how=:outer), 
+        table((a=[0, 1, 1, 2, 2, 3], b=[1, 1, 2, 1, 2, 2], c=[missing, 1, 2, 3, 4, missing], d=[1, 2, 3, missing, missing, 4]))
+    )
     a = table([1],[2], names=[:x,:y])
     b = table([1],[3], names=[:a,:b])
     @test join(a, b, lkey=:x,rkey=:a) == table([1],[2],[3], names=[:x,:y,:b]) # issue JuliaDB.jl#105
@@ -651,11 +657,11 @@ end
     l1 = table([1, 2, 2, 3], [1, 2, 3, 4], names=[:x, :y])
     r1 = table([2, 2, 3, 3], [5, 6, 7, 8], names=[:x, :z])
     @test join(l1, r1, lkey=:x, rkey=:x) == table([2, 2, 2, 2, 3, 3], [2, 2, 3, 3, 4, 4], [5, 6, 5, 6, 7, 8], names=Symbol[:x, :y, :z])
-    @test isequal(join(l, r, lkey=:a, rkey=:a, lselect=:b, rselect=:d, how=:outer), table([0, 1, 1, 1, 1, 2, 2, 3], DataValueArray([NA, 1, 1, 2, 2, 1, 2, NA]), DataValueArray([1, 2, 3, 2, 3, NA, NA, 4]), names=Symbol[:a, :b, :d]))
+    @test isequal(join(l, r, lkey=:a, rkey=:a, lselect=:b, rselect=:d, how=:outer), table([0, 1, 1, 1, 1, 2, 2, 3], [missing, 1, 1, 2, 2, 1, 2, missing], [1, 2, 3, 2, 3, missing, missing, 4], names=Symbol[:a, :b, :d]))
 
 
     t = table(["a","b","c","a"], [1,2,3,4]); t1 = table(["a","b"], [1,2])
-    @test isequal(leftjoin(t,t1,lkey=1,rkey=1), table(["a","a","b","c"], [1,4,2,3], [1,1,2,NA]))
+    @test isequal(leftjoin(t,t1,lkey=1,rkey=1), table(["a","a","b","c"], [1,4,2,3], [1,1,2,missing]))
 
     t1 = table([1,2,3,4], [5,6,7,8], pkey=[1])
     t2 = table([0,3,4,5], [5,6,7,8], pkey=[1])
@@ -680,35 +686,39 @@ end
     @test naturaljoin(c, a) == NDSparse([12,32], [52,34], Columns([0,1], [2,3], [11,150]))
 
     @test isequal(
-              leftjoin(t1, t2, lselect=2, rselect=2),
-              table([1,2,3,4], [5,6,7,8], [NA, NA, 6, 7]))
+        leftjoin(t1, t2, lselect=2, rselect=2),
+        table([1,2,3,4], [5,6,7,8], [missing, missing, 6, 7])
+    )
 
     # null instead of missing row
-    @test isequal(leftjoin(+, t1, t2, lselect=2, rselect=2), table([1,2,3,4], [NA, NA, 13, 15]))
+    @test isequal(
+        leftjoin(+, t1, t2, lselect=2, rselect=2), 
+        table([1,2,3,4], [missing, missing, 13, 15])
+    )
 
-    @test isequal(leftjoin(t1, t2), table([1,2,3,4], [5,6,7,8], [NA, NA, 6,7]))
-    @test isequal(leftjoin(+, t1, t3, lselect=2, rselect=2), table([1,2,3,4,4],[NA,NA,13,15,16]))
-    @test isequal(leftjoin(+, t3, t4, lselect=2, rselect=2), table([0,3,4,4,4,4], [NA, 12, 14,15,15,16]))
+    @test isequal(leftjoin(t1, t2), table([1,2,3,4], [5,6,7,8], [missing, missing, 6,7]))
+    @test isequal(leftjoin(+, t1, t3, lselect=2, rselect=2), table([1,2,3,4,4],[missing,missing,13,15,16]))
+    @test isequal(leftjoin(+, t3, t4, lselect=2, rselect=2), table([0,3,4,4,4,4], [missing, 12, 14,15,15,16]))
 
     @test isequal(leftjoin(NDSparse([1,1,1,2], [2,3,4,4], [5,6,7,8]),
                    NDSparse([1,1,3],   [2,4,4],   [9,10,12])),
-                  NDSparse([1,1,1,2], [2,3,4,4], Columns([5, 6, 7, 8], [9, NA, 10, NA])))
+                  NDSparse([1,1,1,2], [2,3,4,4], Columns([5, 6, 7, 8], [9, missing, 10, missing])))
 
     @test isequal(
                   leftjoin(NDSparse([1,1,1,2], [2,3,4,4], [5,6,7,8]),
                    NDSparse([1,1,2],   [2,4,4],   [9,10,12])),
-                  NDSparse([1,1,1,2], [2,3,4,4], Columns([5, 6, 7, 8], [9, NA, 10, 12])))
+                  NDSparse([1,1,1,2], [2,3,4,4], Columns([5, 6, 7, 8], [9, missing, 10, 12])))
 
 
-    @test isequal(outerjoin(t1, t2, lselect=2, rselect=2), table([0,1,2,3,4,5], [NA, 5,6,7,8,NA], [5,NA,NA,6,7,8]))
+    @test isequal(outerjoin(t1, t2, lselect=2, rselect=2), table([0,1,2,3,4,5], [missing, 5,6,7,8,missing], [5,missing,missing,6,7,8]))
 
     #showl instead of missing row
-    @test isequal(outerjoin(+, t1, t2, lselect=2, rselect=2), table([0,1,2,3,4,5], [NA, NA, NA, 13, 15, NA]))
+    @test isequal(outerjoin(+, t1, t2, lselect=2, rselect=2), table([0,1,2,3,4,5], [missing, missing, missing, 13, 15, missing]))
 
-    @test isequal(outerjoin(t1, t2), table([0,1,2,3,4,5], [NA, 5,6,7,8,NA], [5,NA,NA,6,7,8]))
-    @test isequal(outerjoin(+, t1, t3, lselect=2, rselect=2), table([0,1,2,3,4,4],[NA,NA,NA,13,15,16]))
-    @test isequal(outerjoin(+, t3, t4, lselect=2, rselect=2), table([0,1,3,4,4,4,4], [NA, NA, 12,14,15,15,16]))
-
+    @test isequal(outerjoin(t1, t2), table([0,1,2,3,4,5], [missing, 5,6,7,8,missing], [5,missing,missing,6,7,8]))
+    @test isequal(outerjoin(+, t1, t3, lselect=2, rselect=2), table([0,1,2,3,4,4],[missing,missing,missing,13,15,16]))
+    @test isequal(outerjoin(+, t3, t4, lselect=2, rselect=2), table([0,1,3,4,4,4,4], [missing, missing, 12,14,15,15,16]))
+end
 @testset "groupjoin" begin
     l = table([1, 1, 1, 2], [1, 2, 2, 1], [1, 2, 3, 4], names=[:a, :b, :c], pkey=(:a, :b))
     r = table([0, 1, 1, 2], [1, 2, 2, 1], [1, 2, 3, 4], names=[:a, :b, :d], pkey=(:a, :b))
@@ -759,6 +769,8 @@ end
     @test select(t, Between(:x, :z)) == select(t, (:x, :y, :z))
     @test select(t, i -> i == :y) == select(t, (:y,))
     @test select(t, r"x|z") == select(t, (:x, :z))
+    @test select(t, Int) == select(t, (:x, :z))
+    @test select(t, String) == select(t, (:y,))
 
     @test rows(t, Keys()) == rows(t, (:x,))
     @test rows(t, (Keys(), :y)) == rows(t, ((:x,), :y))
@@ -796,13 +808,12 @@ end
     @test hascolumns(t, i -> i == :y)
     @test hascolumns(t, r"x|z")
 end
-
-    t = table([0.1, 0.5, NA, 0.7], [2, NA, 4, 5], [NA, 6, NA, 7], names=[:t, :x, :y])
-    @test dropna(t) == table([0.7], [5], [7], names=Symbol[:t, :x, :y])
-    @test isequal(dropna(t, :y), table([0.5, 0.7], [NA, 5], [6, 7], names=Symbol[:t, :x, :y]))
-    t1 = dropna(t, (:t, :x))
-    @test typeof(column(dropna(t, :x), :x)) == Array{Int,1}
-
+@testset "dropmissing" begin
+    t = table([0.1, 0.5, missing, 0.7], [2, missing, 4, 5], [missing, 6, missing, 7], names=[:t, :x, :y])
+    @test dropmissing(t) == table([0.7], [5], [7], names=Symbol[:t, :x, :y])
+    @test isequal(dropmissing(t, :y), table([0.5, 0.7], [missing, 5], [6, 7], names=Symbol[:t, :x, :y]))
+    @test typeof(column(dropmissing(t, :x), :x)) == Array{Int,1}
+end
 @testset "filter" begin
     t = table(["a", "b", "c"], [0.01, 0.05, 0.07], [2, 1, 0], names=[:n, :t, :x])
     @test filter((p->p.x / p.t < 100), t) == table(["b", "c"], [0.05, 0.07], [1, 0], names=Symbol[:n, :t, :x])

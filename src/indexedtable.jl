@@ -1,5 +1,3 @@
-import Base: setindex!, reduce
-
 """
 A permutation
 
@@ -16,7 +14,7 @@ end
 abstract type AbstractIndexedTable end
 
 """
-A tabular data structure that extends [`Columns`](@ref).  Create a `IndexedTable` with the 
+A tabular data structure that extends [`Columns`](@ref).  Create an `IndexedTable` with the 
 [`table`](@ref) function.
 """
 struct IndexedTable{C<:Columns} <: AbstractIndexedTable
@@ -51,7 +49,9 @@ Construct a table from a vector of tuples. See [`rows`](@ref) and [`Columns`](@r
 
 Copy a Table or NDSparse to create a new table. The same primary keys as the input are used.
 
-    table(iter; kw...)
+    table(x; kw...)
+
+Create an `IndexedTable` from any object `x` that follows the `Tables.jl` interface.
 
 
 # Keyword Argument Options:
@@ -353,7 +353,7 @@ function sort!(t::IndexedTable, by...; kwargs...)
 end
 
 """
-    excludecols(itr, cols)
+    excludecols(itr, cols) -> Tuple of Int
 
 Names of all columns in `itr` except `cols`. `itr` can be any of
 `Table`, `NDSparse`, `Columns`, or `AbstractVector`
@@ -369,22 +369,10 @@ Names of all columns in `itr` except `cols`. `itr` can be any of
     excludecols(t, pkeynames(t))
     excludecols([1,2,3], (1,))
 """
-function excludecols(t, cols)
-    if cols isa SpecialSelector
-        return excludecols(t, lowerselection(t, cols))
-    end
-    if !isa(cols, Tuple)
-        return excludecols(t, (cols,))
-    end
-    ns = colnames(t)
-    mask = ones(Bool, length(ns))
-    for c in cols
-        i = colindex(t, c)
-        if i !== 0
-            mask[i] = false
-        end
-    end
-    ((1:length(ns))[mask]...,)
+excludecols(t, cols) = excludecols(t, (cols,))
+excludecols(t, cols::SpecialSelector) = excludecols(t, lowerselection(t, cols))
+function excludecols(t, cols::Tuple) 
+    Tuple(setdiff(1:length(colnames(t)), map(x -> colindex(t, x), cols)))
 end
 
 """

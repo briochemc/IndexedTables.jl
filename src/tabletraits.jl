@@ -4,16 +4,6 @@ function IteratorInterfaceExtensions.getiterator(source::NDSparse)
     return rows(source)
 end
 
-function _array_factory(t,rows)
-    if isa(t, TypeVar)
-        return Array{Any}(undef, rows)
-    elseif t <: DataValue
-        return DataValueArray{eltype(t)}(rows)
-    else
-        return Array{t}(undef, rows)
-    end
-end
-
 function ndsparse(x; idxcols=nothing, datacols=nothing, copy=false, kwargs...)
     if isiterable(x)
         source_data = collect_columns(getiterator(x))
@@ -52,10 +42,10 @@ function table(rows::AbstractArray{T}; copy=false, kwargs...) where {T<:Union{Tu
     table(collect_columns(rows); copy=false, kwargs...)
 end
 
-function table(iter; copy=false, kwargs...)
+function table(iter; copy=false, kw...)
     if TableTraits.isiterable(iter)
-        table(collect_columns(getiterator(iter)); copy=false, kwargs...)
+        table(collect_columns(getiterator(iter)); copy=copy, kw...)
     else
-        throw(ArgumentError("iter cannot be turned into a IndexedTable."))
+        table(Tables.columntable(iter); copy=copy, kw...)
     end
 end

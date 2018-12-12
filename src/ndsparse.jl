@@ -271,8 +271,6 @@ function permutedims(t::NDSparse, p::AbstractVector)
 end
 
 # showing
-
-import Base.show
 function show(io::IO, t::NDSparse{T,D}) where {T,D}
     flush!(t)
     if !(values(t) isa Columns)
@@ -391,7 +389,7 @@ end
 # aggregation
 
 """
-`aggregate!(f::Function, arr::NDSparse)`
+    aggregate!(f::Function, arr::NDSparse)
 
 Combine adjacent rows with equal indices using the given 2-argument reduction function,
 in place.

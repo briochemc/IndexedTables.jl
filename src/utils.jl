@@ -1,6 +1,3 @@
-import Base: tuple_type_cons, tuple_type_head, tuple_type_tail, in, ==, isless, convert,
-             length, eltype, show
-
 (T::Type{<:StringArray})(::typeof(undef), args...) = T(args...)
 
 fastmap(f, xs...) = map(f, xs...)
@@ -161,7 +158,7 @@ function namedtuple(fields...)
 end
 
 """
-`arrayof(T)`
+    arrayof(T)
 
 Returns the type of `Columns` or `Vector` suitable to store
 values of type T. Nested tuples beget nested Columns.
@@ -331,8 +328,6 @@ end
 
 compact_mem(x) = x
 compact_mem(x::StringArray{String}) = convert(StringArray{WeakRefString{UInt8}}, x)
-
-#nonmissing(::Type{Union{Missing, T}}) where T = T
 
 function getsubfields(n::NamedTuple, fields)
     fns = fieldnames(typeof(n))
