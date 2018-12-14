@@ -197,7 +197,7 @@ which all conditions are true.
 """
 function Base.filter(fn, t::Dataset; select=valuenames(t))
     x = rows(t, select)
-    indxs = findall(map(fn, x))
+    indxs = findall(fn, x)
     subtable(t, indxs, presorted=true)
 end
 
