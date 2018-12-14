@@ -451,7 +451,7 @@ n    t    │
 """
 function Base.filter(fn, t::Dataset; select=valuenames(t))
     x = rows(t, select)
-    indxs = find(map(fn, x))
+    indxs = find(fn, x)
     subtable(t, indxs, presorted=true)
 end
 
