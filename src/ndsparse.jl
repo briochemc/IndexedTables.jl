@@ -88,11 +88,11 @@ function ndsparse(::Val{:serial}, ks::Tup, vs::Union{Tup, AbstractVector};
     elseif copy
         if agg !== nothing
             iter = GroupReduce(agg, I, d, Base.OneTo(length(I)))
-            I, d = collect_columns(iter).columns
+            I, d = collect_columns(iter) |> columns
             agg = nothing
         else
-            I = Base.copy(I)
-            d = Base.copy(d)
+            I = copyto!(similar(I), I)
+            d = copyto!(similar(d), d)
         end
     end
     stripnames(x) = isa(x, Columns) ? rows(astuple(columns(x))) : rows((x,))
@@ -117,7 +117,7 @@ function ndsparse(x::Columns, y::AbstractVector; kwargs...)
 end
 
 ndsparse(c::Columns{<:Pair}; kwargs...) =
-    convert(NDSparse, c.columns.first, c.columns.second; kwargs...)
+    convert(NDSparse, columns(c).first, columns(c).second; kwargs...)
 
 # backwards compat
 NDSparse(idx::Columns, data; kwargs...) = ndsparse(idx, data; kwargs...)
@@ -177,7 +177,7 @@ Construct an NDSparse array from columns. The last argument is the data column, 
 """
 function NDSparse(columns...; names=nothing, rest...)
     keys, data = columns[1:end-1], columns[end]
-    ndsparse(Columns(keys..., names=names), data; rest...)
+    ndsparse(Columns(keys, names=names), data; rest...)
 end
 
 similar(t::NDSparse) = NDSparse(similar(t.index, 0), similar(t.data, 0))
@@ -209,7 +209,7 @@ _convert(::Type{<:Tuple}, tup::Tuple) = tup
 _convert(::Type{T}, tup::Tuple) where {T<:NamedTuple} = T(tup)
 convertkey(t::NDSparse{V,K,I}, tup::Tuple) where {V,K,I} = _convert(eltype(I), tup)
 
-ndims(t::NDSparse) = length(t.index.columns)
+ndims(t::NDSparse) = length(fieldarrays(t.index))
 length(t::NDSparse) = (flush!(t);length(t.index))
 eltype(::Type{NDSparse{T,D,C,V}}) where {T,D,C,V} = T
 Base.keytype(::Type{NDSparse{T,D,C,V}}) where {T,D,C,V} = D
@@ -267,7 +267,7 @@ function permutedims(t::NDSparse, p::AbstractVector)
         throw(ArgumentError("argument to permutedims must be a valid permutation"))
     end
     flush!(t)
-    NDSparse(Columns(t.index.columns[p]), t.data, copy=true)
+    NDSparse(Columns(columns(t.index)[p]), t.data, copy=true)
 end
 
 # showing
@@ -312,7 +312,7 @@ function showmeta(io, t::NDSparse, cnames)
 end
 
 @noinline convert(::Type{NDSparse}, @nospecialize(ks), @nospecialize(vs); kwargs...) = ndsparse(ks, vs; kwargs...)
-@noinline convert(T::Type{NDSparse}, c::Columns{<:Pair}; kwargs...) = convert(T, c.columns.first, c.columns.second; kwargs...)
+@noinline convert(T::Type{NDSparse}, c::Columns{<:Pair}; kwargs...) = convert(T, columns(c).first, columns(c).second; kwargs...)
 
 # map and convert
 
@@ -344,9 +344,9 @@ end
 # Given an NDSparse array with multiple data columns (its data vector is a `Columns` object), return a
 # new array with the specified subset of data columns. Data is shared with the original array.
 # """
-# columns(x::NDSparse, which...) = NDSparse(x.index, Columns(x.data.columns[[which...]]), presorted=true)
+# columns(x::NDSparse, which...) = NDSparse(x.index, Columns(columns(x.data)[[which...]]), presorted=true)
 
-#columns(x::NDSparse, which) = NDSparse(x.index, x.data.columns[which], presorted=true)
+#columns(x::NDSparse, which) = NDSparse(x.index, columns(x.data)[which], presorted=true)
 
 #column(x::NDSparse, which) = columns(x, which)
 
@@ -383,7 +383,7 @@ function convert(::Type{NDSparse}, a::AbstractArray{T}) where T
         end
         i += 1
     end
-    NDSparse(Columns(reverse(idxs)...), data, presorted=true)
+    NDSparse(Columns(Tuple(Iterators.reverse(idxs))), data, presorted=true)
 end
 
 # aggregation

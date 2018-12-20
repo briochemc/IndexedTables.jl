@@ -101,10 +101,10 @@ function table(::Val{:serial}, cols::Tup;
                 cs = permute!(cs, perm)
             end
         elseif copy
-            cs = Base.copy(cs)
+            cs = copyto!(similar(cs), cs)
         end
     elseif copy
-        cs = Base.copy(cs)
+        cs = copyto!(similar(cs), cs)
     end
 
     intpkey = map(k->colindex(cs, k), pkey)
@@ -141,7 +141,7 @@ function table(cs::Tup; chunks=nothing, kwargs...)
 end
 
 table(cs::Columns; kwargs...) = table(columns(cs); kwargs...)
-table(c::Columns{<:Pair}; kwargs...) = convert(IndexedTable, c.columns.first, c.columns.second; kwargs...)
+table(c::Columns{<:Pair}; kwargs...) = convert(IndexedTable, columns(c).first, columns(c).second; kwargs...)
 
 function table(cols::AbstractArray...; names=nothing, kwargs...)
     if isa(names, AbstractArray) && all(x->isa(x, Symbol), names)
@@ -312,7 +312,7 @@ a default key of tuples `(1,):(n,)` is generated.
 """
 function pkeys(t::IndexedTable)
     if isempty(t.pkey)
-        Columns(Base.OneTo(length(t)))
+        Columns((Base.OneTo(length(t)),))
     else
         rows(t, pkeynames(t))
     end
@@ -384,12 +384,12 @@ keyword arguments will be forwarded to [`table`](@ref) constructor.
 # Example
     convert(IndexedTable, Columns(x=[1,2],y=[3,4]), Columns(z=[1,2]), presorted=true)
 """
-function convert(::Type{IndexedTable}, key, val; kwargs...)
+function convert(::Type{IndexedTable}, key, val; pkey = (), kwargs...)
     cs = concat_cols(key, val)
-    table(cs, pkey=[1:ncols(key);]; kwargs...)
+    table(cs; pkey=Tuple(1:ncols(key)), kwargs...)
 end
 
-convert(T::Type{IndexedTable}, c::Columns{<:Pair}; kwargs...) = convert(T, c.columns.first, c.columns.second; kwargs...)
+convert(T::Type{IndexedTable}, c::Columns{<:Pair}; kwargs...) = convert(T, c.first, c.second; kwargs...)
 # showing
 
 global show_compact_when_wide = true

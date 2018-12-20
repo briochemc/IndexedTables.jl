@@ -168,7 +168,7 @@ Base.@pure function arrayof(S)
     if T == Union{}
         Vector{Union{}}
     elseif T<:Tuple
-        Columns{T, Tuple{map(arrayof, fieldtypes(T))...}}
+        Columns{T, staticschema(Tuple{map(arrayof, fieldtypes(T))...})}
     elseif T<:NamedTuple
         if fieldcount(T) == 0
             Columns{NamedTuple{(), Tuple{}}, NamedTuple{(), Tuple{}}}
@@ -179,7 +179,7 @@ Base.@pure function arrayof(S)
         T<:Union{String, WeakRefString}
         StringArray{T, 1}
     elseif T<:Pair
-        Columns{T, Pair{map(arrayof, T.parameters)...}}
+        Columns{T, NamedTuple{(:first, :second), Tuple{map(arrayof, T.parameters)...}}}
     else
         Vector{T}
     end

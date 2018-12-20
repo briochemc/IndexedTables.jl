@@ -251,14 +251,14 @@ init_func(ac::ApplyColwise{<:Tuple}, t::AbstractVector) =
     Tuple(Symbol(n) => f for (f, n) in zip(ac.functions, ac.names))
 function init_func(ac::ApplyColwise{<:Tuple}, t::Columns)
     if ac.stack
-        dd -> Columns(collect(colnames(t)), ([f(x) for x in columns(dd)] for f in ac.functions)...; names = vcat(ac.variable, ac.names))
+        dd -> Columns((collect(colnames(t)), ([f(x) for x in columns(dd)] for f in ac.functions)...); names = vcat(ac.variable, ac.names))
     else
         Tuple(Symbol(s, :_, n) => s => f for s in colnames(t), (f, n) in zip(ac.functions, ac.names))
     end
 end
 
 init_func(ac::ApplyColwise, t::Columns) =
-    ac.stack ? dd -> Columns(collect(colnames(t)), [ac.functions(x) for x in columns(dd)]; names = vcat(ac.variable, ac.names)) :
+    ac.stack ? dd -> Columns((collect(colnames(t)), [ac.functions(x) for x in columns(dd)]); names = vcat(ac.variable, ac.names)) :
         Tuple(s => s => ac.functions for s in colnames(t))
 init_func(ac::ApplyColwise, t::AbstractVector) = ac.functions
 
@@ -342,7 +342,7 @@ function Base.reduce(f, x::NDSparse; kws...)
         if dims isa Symbol
             dims = [dims]
         end
-        keep = setdiff([1:ndims(x);], map(d->fieldindex(x.index.columns,d), dims))
+        keep = setdiff([1:ndims(x);], map(d->fieldindex(columns(x.index),d), dims))
         if isempty(keep)
             throw(ArgumentError("to remove all dimensions, use `reduce(f, A)`"))
         end
@@ -363,11 +363,11 @@ Like `reduce`, except uses a function mapping a vector of values to a scalar ins
 of a 2-argument scalar function.
 """
 function reducedim_vec(f, x::NDSparse, dims; with=valuenames(x))
-    keep = setdiff([1:ndims(x);], map(d->fieldindex(x.index.columns,d), dims))
+    keep = setdiff([1:ndims(x);], map(d->fieldindex(columns(x.index),d), dims))
     if isempty(keep)
         throw(ArgumentError("to remove all dimensions, use `reduce(f, A)`"))
     end
-    idxs, d = collect_columns(GroupBy(f, keys(x, (keep...,)), rows(x, with), sortpermby(x, (keep...,)))).columns
+    idxs, d = collect_columns(GroupBy(f, keys(x, (keep...,)), rows(x, with), sortpermby(x, (keep...,)))) |> columns
     NDSparse(idxs, d, presorted=true, copy=false)
 end
 
