@@ -30,7 +30,7 @@ struct IndexedTable{C<:Columns} <: AbstractIndexedTable
     columns_buffer::Any
 end
 
-@deprecate NextTable IndexedTable
+Base.@deprecate_binding NextTable IndexedTable
 
 """
     table(cols; kw...)
