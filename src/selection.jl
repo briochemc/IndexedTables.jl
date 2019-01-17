@@ -9,7 +9,7 @@ Select all or a subset of columns, or a single column from the table.
 2. `Symbol` -- returns the column with this name.
 3. `Pair{Selection => Function}` -- selects and maps a function over the selection, returns the result.
 4. `AbstractArray` -- returns the array itself. This must be the same length as the table.
-5. `Tuple` of `Selection` -- returns a table containing a column for every selector in the tuple. The tuple may also contain the type `Pair{Symbol, Selection}`, which the selection a name. The most useful form of this when introducing a new column.
+5. `Tuple` of `Selection` -- returns a table containing a column for every selector in the tuple.
 6. `Regex` -- returns the columns with names that match the regular expression.
 7. `Type` -- returns columns with elements of the given type.
 
