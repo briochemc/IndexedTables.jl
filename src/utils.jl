@@ -1,3 +1,26 @@
+#-----------------------------------------------------------------------# Missing/DataValue
+missing_instance(::Type{Missing}) = missing 
+missing_instance(::Type{DataValue}) = DataValue()
+
+type2missingtype(T, ::Type{Missing}) = Union{T, Missing} 
+type2missingtype(T, ::Type{DataValue}) = DataValue{T}
+type2missingtype(T::Type{<:DataValue}, ::Type{DataValue}) = T
+
+missingtype2type(T) = Base.nonmissingtype(T)
+missingtype2type(::Type{DataValue{T}}) where {T} = T
+
+unwrap(x) = x
+unwrap(x::DataValue) = get(x)
+
+ismissingtype(T, ::Type{Missing}) = Missing <: T 
+ismissingtype(T, ::Type{DataValue}) = T <: DataValue
+
+_ismissing(x) = ismissing(x)
+_ismissing(x::DataValue) = isna(x)
+
+Base.similar(T::Type{DataValueArray{S}}, n::Dims) where {S} = DataValueArray(Vector{S}(undef, n))
+
+#-----------------------------------------------------------------------# other
 (T::Type{<:StringArray})(::typeof(undef), args...) = T(args...)
 
 fastmap(f, xs...) = map(f, xs...)
@@ -175,11 +198,12 @@ Base.@pure function arrayof(S)
         else
             Columns{T,NamedTuple{fieldnames(T), Tuple{map(arrayof, fieldtypes(T))...}}}
         end
-    elseif (T<:Union{Missing,String,WeakRefString} && Missing<:T) ||
-        T<:Union{String, WeakRefString}
+    elseif (T<:Union{Missing,String,WeakRefString} && Missing<:T) || T<:Union{String, WeakRefString}
         StringArray{T, 1}
     elseif T<:Pair
         Columns{T, NamedTuple{(:first, :second), Tuple{map(arrayof, T.parameters)...}}}
+    elseif T <: DataValue
+        DataValueArray{eltype(T)}
     else
         Vector{T}
     end

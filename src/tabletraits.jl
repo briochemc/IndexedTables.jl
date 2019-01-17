@@ -1,12 +1,12 @@
-TableTraits.isiterabletable(x::NDSparse) = true
+TableTraits.isiterabletable(x::Dataset) = true
 
 function IteratorInterfaceExtensions.getiterator(source::NDSparse)
     return rows(source)
 end
 
 function ndsparse(x; idxcols=nothing, datacols=nothing, copy=false, kwargs...)
-    if isiterable(x)
-        source_data = collect_columns(getiterator(x))
+    if TableTraits.isiterable(x)
+        source_data = collect_columns(IteratorInterfaceExtensions.getiterator(x))
         source_data isa Columns{<:Pair} && return ndsparse(source_data; copy=false, kwargs...)
 
         # For backward compatibility
@@ -35,7 +35,6 @@ function ndsparse(x; idxcols=nothing, datacols=nothing, copy=false, kwargs...)
     end
 end
 
-# For backward compatibility
 NDSparse(x; kwargs...) = ndsparse(x; kwargs...)
 
 function table(rows::AbstractArray{T}; copy=false, kwargs...) where {T<:Union{Tup, Pair}}
@@ -44,8 +43,10 @@ end
 
 function table(iter; copy=false, kw...)
     if TableTraits.isiterable(iter)
-        table(collect_columns(getiterator(iter)); copy=copy, kw...)
-    else
+        table(collect_columns(IteratorInterfaceExtensions.getiterator(iter)); copy=copy, kw...)
+    elseif Tables.istable(typeof(iter))
         table(Tables.columntable(iter); copy=copy, kw...)
+    else
+        throw(ArgumentError("input satisfies neither IterableTables.jl nor Tables.jl"))
     end
 end

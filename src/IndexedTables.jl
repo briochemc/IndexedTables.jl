@@ -1,10 +1,15 @@
 module IndexedTables
 
-using PooledArrays, SparseArrays, Statistics, WeakRefStrings, TableTraits, 
-    TableTraitsUtils, IteratorInterfaceExtensions
+using PooledArrays, SparseArrays, Statistics, WeakRefStrings
 
 using OnlineStatsBase: OnlineStat, fit!
-import Tables
+using StructArrays: StructVector, StructArray, foreachfield, fieldarrays, 
+    collect_structarray, staticschema, ArrayInitializer, refine_perm!, collect_structarray, 
+    collect_empty_structarray, grow_to_structarray!, collect_to_structarray! 
+
+import Tables, TableTraits, IteratorInterfaceExtensions
+
+import DataValues: DataValue, DataValueArray, isna
 
 import Base:
     show, eltype, length, getindex, setindex!, ndims, map, convert, keys, values,
@@ -13,9 +18,6 @@ import Base:
     sortperm, summary, resize!, vcat, append!, copyto!, view, tail,
     tuple_type_cons, tuple_type_head, tuple_type_tail, in, convert
 
-
-using StructArrays: StructVector, StructArray, foreachfield, fieldarrays, collect_structarray, staticschema, ArrayInitializer,
-                    refine_perm!, collect_structarray, collect_empty_structarray, grow_to_structarray!, collect_to_structarray! 
 
 #-----------------------------------------------------------------------# exports
 export 
@@ -77,9 +79,7 @@ include("reduce.jl")
 include("flatten.jl")
 include("join.jl")
 include("reshape.jl")
-
-# TableTraits/Tables integration
-include("tabletraits.jl")
 include("tables.jl")
+include("tabletraits.jl")
 
 end # module

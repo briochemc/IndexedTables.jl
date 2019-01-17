@@ -11,6 +11,7 @@ Select all or a subset of columns, or a single column from the table.
 4. `AbstractArray` -- returns the array itself. This must be the same length as the table.
 5. `Tuple` of `Selection` -- returns a table containing a column for every selector in the tuple. The tuple may also contain the type `Pair{Symbol, Selection}`, which the selection a name. The most useful form of this when introducing a new column.
 6. `Regex` -- returns the columns with names that match the regular expression.
+7. `Type` -- returns columns with elements of the given type.
 
 # Examples:
 
@@ -122,7 +123,7 @@ Returns a new table if `f` returns a tuple or named tuple.  If not, returns a ve
 function map(f, t::AbstractIndexedTable; select=nothing) end
 
 function map(f, t::Dataset; select=nothing, copy=false, kwargs...)
-    if isa(f, Tup) && select===nothing
+    if isa(f, Tup) && select === nothing
         select = colnames(t)
     elseif select === nothing
         select = valuenames(t)
@@ -132,34 +133,27 @@ function map(f, t::Dataset; select=nothing, copy=false, kwargs...)
     isa(x, Columns) ? table(x; copy=false, kwargs...) : x
 end
 
-function _non_missing(t::Union{Columns, IndexedTable}, sel=(colnames(t)...,))
+
+missing_indxs(v::Vector) = findall(!_ismissing, v)
+
+function missing_indxs(t::StructArray)
     indxs = collect(1:length(t))
-    by = isa(sel, Tuple) ? sel : (sel,)
-    bycols = columns(t, by)
-    d = ColDict(t)
-    for (key, c) in zip(by, bycols)
-        x = rows(t, c)
-        if Missing <: eltype(x)
-            filt_by_col!(!ismissing, x, indxs)
-            y = Vector{Base.nonmissingtype(eltype(x))}(undef, length(x))
-            y[indxs] = x[indxs]
-            d[key] = y
-        else
-            d[key] = x
-        end
+    for vec in getfield(t, :fieldarrays)
+        filter!(i -> !_ismissing(vec[i]), indxs)
     end
-    (d[], indxs)
+    indxs
 end
 
 """
-    dropmissing(t)
+    dropmissing(t        )
     dropmissing(t, select)
 
-Drop rows of table `t` which contain `missing` values, optionally only 
-using the columns in `select`.  
+Drop rows of table `t` which contain missing values (either `Missing` or `DataValue`), 
+optionally only using the columns in `select`.  Column types will be converted to 
+non-missing types.  For example:
 
-Column types will be converted to non-`Missing` types.  E.g. `Array{Union{Int, Missing}}` 
-to `Array{Int}`.
+- `Vector{Union{Int, Missing}}` -> `Vector{Int}`
+- `DataValueArray{Int}` -> Vector{Int}
 
 # Example
 
@@ -167,13 +161,62 @@ to `Array{Int}`.
     dropmissing(t)
     dropmissing(t, (:t, :x))
 """
-function dropmissing(t::Dataset, by=colnames(t))
-    subtable(_non_missing(t, by)...)
+function dropmissing(t::IndexedTable, sel = All())
+    selection = lowerselection(t, sel)
+    indxs = missing_indxs(rows(t, selection))
+    t2 = subtable(t, indxs)
+    d = ColDict(t2)
+    for s in selection
+        T = eltype(d[s])
+        d[s] = convert(Vector{missingtype2type(T)}, d[s])
+    end
+    
+    table(d[], copy=false, perms=t.perms, presorted=true)
 end
 
-@deprecate dropna dropmissing
+dropmissing(t::NDSparse, sel=All()) = ndsparse(dropmissing(table(t), sel))
 
-filt_by_col!(f, col, indxs) = filter!(i->f(col[i]), indxs)
+Base.@deprecate_binding dropna dropmissing
+
+"""
+    convertmissing(tbl, missingtype)
+
+Convert the missing value representation in `tbl` to be of type `missingtype`.
+
+# Example
+
+    using IndexedTables, DataValues
+    t = table([1,2,missing], [1,missing,3])
+    IndexedTables.convertmissing(t, DataValue)
+"""
+function convertmissing(t::IndexedTable, ::Type{Missing}) 
+    d = ColDict(t)
+    for (k, v) in pairs(d)
+        T = eltype(v)
+        if T <: DataValue
+            indxs = findall(!isna, v)
+            y = Vector{Union{Missing, missingtype2type(T)}}(missing, length(v))
+            y[indxs] = get.(v[indxs])
+            d[k] = y
+        end
+    end
+    subtable(d[], 1:length(t))
+end
+function convertmissing(t::IndexedTable, ::Type{DataValue}) 
+    d = ColDict(t)
+    for (k, v) in pairs(d)
+        T = eltype(v)
+        if Missing <: T 
+            indxs = findall(!ismissing, v)
+            y = DataValueArray(Vector{Base.nonmissingtype(T)}(undef, length(v)), trues(length(v)))
+            y[indxs] = v[indxs]
+            d[k] = y
+        end
+    end
+    subtable(d[], 1:length(t))
+end
+convertmissing(t::NDSparse, Typ) = ndsparse(convertmissing(table(t), Typ))
+
 
 """
     filter(f, t::Union{IndexedTable, NDSparse}; select)
@@ -214,6 +257,8 @@ function Base.filter(pred::Tuple, t::Dataset; select=nothing)
     end
     subtable(t, indxs, presorted=true)
 end
+
+filt_by_col!(f, col, indxs) = filter!(i->f(col[i]), indxs)
 
 function Base.filter(pred::Pair, t::Dataset; select=nothing)
     filter((pred,), t, select=select)
