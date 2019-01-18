@@ -376,7 +376,7 @@ end
 Select one or more fields from an iterable of rows as a vector of their values.  Refer to 
 the [`select`](@ref) function for selection options and syntax.
 
-`itr` can be [`NDSparse`](@ref), [`Columns`](@ref), `AbstractVector`, or their distributed counterparts.
+`itr` can be [`NDSparse`](@ref), `StructArrays.StructVector`, `AbstractVector`, or their distributed counterparts.
 
 # Examples
 

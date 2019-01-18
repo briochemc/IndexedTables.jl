@@ -353,7 +353,7 @@ end
     excludecols(itr, cols) -> Tuple of Int
 
 Names of all columns in `itr` except `cols`. `itr` can be any of
-`Table`, `NDSparse`, `Columns`, or `AbstractVector`
+`IndexedTable`, `NDSparse`, `StructArrays.StructVector`, or `AbstractVector`
 
 # Examples
 
