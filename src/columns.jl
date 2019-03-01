@@ -85,14 +85,18 @@ end
 # these can be implemented for custom vector types like PooledVector where
 # you can get big speedups by doing indexing and an operation in one step.
 
-@inline cmpelts(a, i, j) = (@inbounds x=cmp(a[i], a[j]); x)
 @inline copyelt!(a, i, j) = (@inbounds a[i] = a[j])
 @inline copyelt!(a, i, b, j) = (@inbounds a[i] = b[j])
-
-@inline cmpelts(a::PooledArray, i, j) = (x=cmp(a.refs[i],a.refs[j]); x)
 @inline copyelt!(a::PooledArray, i, j) = (a.refs[i] = a.refs[j])
 
 # row operations
+
+@inline roweq(x::AbstractVector, i, j) = (@inbounds eq=isequal(x[i], x[j]); eq)
+@inline roweq(a::PooledArray, i, j) = (@inbounds x=a.refs[i] == a.refs[j]; x)
+@inline function roweq(a::StringArray{String}, i, j)
+    weaksa = convert(StringArray{WeakRefString{UInt8}}, a)
+    @inbounds isequal(weaksa[i], weaksa[j])
+end
 
 copyrow!(I::Columns, i, src) = foreachfield(c->copyelt!(c, i, src), I)
 copyrow!(I::Columns, i, src::Columns, j) = foreachfield((c1,c2)->copyelt!(c1, i, c2, j), I, src)
@@ -100,29 +104,14 @@ copyrow!(I::AbstractArray, i, src::AbstractArray, j) = (@inbounds I[i] = src[j])
 pushrow!(to::Columns, from::Columns, i) = foreachfield((a,b)->push!(a, b[i]), to, from)
 pushrow!(to::AbstractArray, from::AbstractArray, i) = push!(to, from[i])
 
-@generated function rowless(c::Columns{D,C}, i, j) where {D,C}
-    N = fieldcount(C)
-    ex = :(cmpelts(getfield(fieldarrays(c),$N), i, j) < 0)
-    for n in N-1:-1:1
-        ex = quote
-            let d = cmpelts(getfield(fieldarrays(c),$n), i, j)
-                (d == 0) ? ($ex) : (d < 0)
-            end
-        end
-    end
-    ex
-end
-
 @generated function roweq(c::Columns{D,C}, i, j) where {D,C}
     N = fieldcount(C)
-    ex = :(cmpelts(getfield(fieldarrays(c),1), i, j) == 0)
+    ex = :(roweq(getfield(fieldarrays(c),1), i, j))
     for n in 2:N
-        ex = :(($ex) && (cmpelts(getfield(fieldarrays(c),$n), i, j)==0))
+        ex = :(($ex) && (roweq(getfield(fieldarrays(c),$n), i, j)))
     end
     ex
 end
-
-@inline roweq(x::AbstractVector, i, j) = x[i] == x[j]
 
 # uses number of columns from `d`, assuming `c` has more or equal
 # dimensions, for broadcast joins.
@@ -131,7 +120,7 @@ end
     ex = :(cmp(getfield(fieldarrays(c),$N)[i], getfield(fieldarrays(d),$N)[j]))
     for n in N-1:-1:1
         ex = quote
-            let k = cmp(getfield(fieldarrays(c),$n)[i], getfield(fieldarrays(d),$n)[j])
+            let k = rowcmp(getfield(fieldarrays(c),$n), i, getfield(fieldarrays(d),$n), j)
                 (k == 0) ? ($ex) : k
             end
         end
@@ -141,6 +130,12 @@ end
 
 @inline function rowcmp(c::AbstractVector, i, d::AbstractVector, j)
     cmp(c[i], d[j])
+end
+
+@inline function rowcmp(c::StringArray{String}, i, d::StringArray{String}, j)
+    wc = convert(StringArray{WeakRefString{UInt8}}, c)
+    wd = convert(StringArray{WeakRefString{UInt8}}, d)
+    cmp(wc[i], wd[j])
 end
 
 # test that the row on the right is "as of" the row on the left, i.e.
