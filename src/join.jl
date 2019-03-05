@@ -102,7 +102,7 @@ function _join!(::Val{typ}, ::Val{grp}, ::Val{keepkeys}, f, I, data, ks, lout, r
                             # optimized push! method for concat_tup
                             _push!(Val{:both}(), f, data,
                                    lout, rout, ldata, rdata,
-                                   lperm[x], rperm[y], 
+                                   lperm[x], rperm[y],
                                    missing_instance(missingtype), missing_instance(missingtype))
                         end
                     end
@@ -172,30 +172,34 @@ end
 # Missing
 nullrow(t::Type{<:Tuple}, ::Type{Missing}) = Tuple(map(x->missing, fieldtypes(t)))
 nullrow(t::Type{<:NamedTuple}, ::Type{Missing}) = t(Tuple(map(x->missing, fieldtypes(t))))
-nullrow(t, ::Type{Missing}) = missing
-function outvec(col, idxs, ::Type{Missing})
-    v = convert(Vector{Union{Missing, eltype(col)}}, col)
-    v[idxs] .= missing
-    v
-end
-
 
 # DataValue
 nullrow(::Type{T}, ::Type{DataValue}) where {T <: Tuple} = Tuple(fieldtype(T, i)() for i = 1:fieldcount(T))
-function nullrow(::Type{NamedTuple{names, T}}, ::Type{DataValue}) where {names, T} 
+function nullrow(::Type{NamedTuple{names, T}}, ::Type{DataValue}) where {names, T}
     NamedTuple{names, T}(Tuple(fieldtype(T, i)() for i = 1:fieldcount(T)))
 end
-nullrow(t, ::Type{DataValue}) = DataValue()
-nullrow(t::DataValue, ::Type{DataValue}) = t()
-function outvec(col, idxs, ::Type{DataValue})
-    nulls = zeros(Bool, length(col))
-    nulls[idxs] .= true
-    if col isa DataValueArray
-        col.isna[idxs] .= true
-    else
-        DataValueArray(col, nulls)
+
+nullrow(T, M) = missing_instance(M)
+
+# a joined column with missing values at `idxs`
+function outvec(col, idxs, ::Type{T}) where {T}
+    v = vec_missing(col, T)
+    for i in idxs
+        v[i] = missing_instance(T)
     end
+    v
 end
+
+# Ge StringArray and DataValue to play nice together
+function outvec(col::StringArray{T}, idxs, ::Type{DataValue}) where {T}
+    mask = [i in idxs for i in 1:length(col)]
+    for i in idxs
+        col[i] = ""
+    end
+    DataValueArray(col, mask)
+end
+
+
 
 function init_join_output(typ, grp, f, ldata, rdata, left, keepkeys, lkey, rkey, init_group, accumulate, missingtype)
     lnull = nothing
@@ -271,25 +275,25 @@ end
 
 Join tables `left` and `right`.
 
-If a function `f(leftrow, rightrow)` is provided, the returned table will have a single 
+If a function `f(leftrow, rightrow)` is provided, the returned table will have a single
 output column.  See the Examples below.
 
-If the same key occurs multiple times in either table, each `left` row will get matched 
+If the same key occurs multiple times in either table, each `left` row will get matched
 with each `right` row, resulting in `n_occurrences_left * n_occurrences_right` output rows.
 
 # Options (keyword arguments)
 
-- `how = :inner` 
+- `how = :inner`
     - Join method to use. Described below.
-- `lkey = pkeys(left)` 
+- `lkey = pkeys(left)`
     - Fields from `left` to match on (see [`pkeys`](@ref)).
-- `rkey = pkeys(right)` 
+- `rkey = pkeys(right)`
     - Fields from `right` to match on.
-- `lselect = Not(lkey)` 
+- `lselect = Not(lkey)`
     - Output columns from `left` (see [`Not`](@ref))
 - `rselect = Not(rkey)`
     - Output columns from `right`.
-- `missingtype = Missing` 
+- `missingtype = Missing`
     - Type of missing values that can be created through `:left` and `:outer` joins.
     - Other supported option is `DataValue`.
 
@@ -840,7 +844,7 @@ dimensions of `j` should have `dimmap[i]==0`.
 If `dimmap` is not specified, it is determined automatically using index column
 names and types.
 
-# Example 
+# Example
 
     a = ndsparse(([1,1,2,2], [1,2,1,2]), [1,2,3,4])
     b = ndsparse([1,2], [1/1, 1/2])
