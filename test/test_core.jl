@@ -433,14 +433,21 @@ end
 
     s = table(cs)
     @test s[[2,1]] == table(rows(s)[[2,1]])
-	
+
     ## Also test getindex, haskey, and get for NDSparse
     ts = ndsparse(t)
     @test ts[1.2] == (y = 3,)
+    @test_throws KeyError ts[1.3]
     @test haskey(ts, (1.2,)) == true
     @test haskey(ts, (1.3,)) == false
     @test get(ts, (1.2,), missing) == (y = 3,)
     @test get(ts, (1.3,), missing) === missing
+    @test get(ts, (1.2,)) do
+        missing
+    end == (y = 3,)
+    @test get(ts, (1.3,)) do
+        missing
+    end === missing
 end
 
 @testset "view & range" begin
