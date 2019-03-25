@@ -1,174 +1,3 @@
-# product-join on equal lkey and rkey starting at i, j
-function joinequalblock(::Val{typ}, ::Val{grp}, f, I, data, lout, rout, lkey, rkey,
-              ldata, rdata, lperm, rperm, init_group, accumulate, i,j) where {typ, grp}
-end
-
-# copy without allocating struct
-@inline function _push!(::Val{part}, f::typeof(concat_tup), data,
-                        lout, rout, ldata, rdata,
-                        lidx, ridx, lnull, rnull) where part
-    if part === :left
-        pushrow!(lout, ldata, lidx)
-        l = length(lout)
-        resize!(rout, l)
-    elseif part === :right
-        pushrow!(rout, rdata, ridx)
-        l = length(rout)
-        resize!(lout, l)
-    elseif part === :both
-        pushrow!(lout, ldata, lidx)
-        pushrow!(rout, rdata, ridx)
-    end
-end
-
-@inline function _push!(::Val{part}, f, data,
-                        lout, rout, ldata, rdata,
-                        lidx, ridx, lnull, rnull) where part
-    if part === :left
-        push!(data, f(ldata[lidx], rnull))
-    elseif part === :right
-        push!(data, f(lnull, rdata[ridx]))
-    elseif part === :both
-        push!(data, f(ldata[lidx], rdata[ridx]))
-    end
-end
-
-@inline function _append!(p::Val{part}, f, data,
-                        lout, rout, ldata, rdata,
-                        lidx, ridx, lnull, rnull) where part
-    if part === :left
-        for i in lidx
-            _push!(p, f, data, lout, rout, ldata, rdata,
-                   i, ridx, lnull, rnull)
-        end
-    elseif part === :right
-        for i in ridx
-            _push!(p, f, data, lout, rout, ldata, rdata,
-                   lidx, i, lnull, rnull)
-        end
-    end
-end
-
-function _join!(::Val{typ}, ::Val{grp}, ::Val{keepkeys}, f, I, data, ks, lout, rout,
-      lnull, rnull, lkey, rkey, ldata, rdata, lperm, rperm, init_group, accumulate, missingtype) where {typ, grp, keepkeys}
-
-    ll, rr = length(lkey), length(rkey)
-
-    i = j = prevj = 1
-
-    lnull_idx = Int[]
-    rnull_idx = Int[]
-
-    while i <= ll && j <= rr
-        c = rowcmp(lkey, lperm[i], rkey, rperm[j])
-        if c < 0
-            if typ === :outer || typ === :left || typ === :anti
-                push!(I, ks[lperm[i]])
-                if grp
-                    # empty group
-                    push!(data, init_group())
-                else
-                    _push!(Val{:left}(), f, data, lout, rout,
-                           ldata, rdata, lperm[i], 0, lnull, rnull)
-                    push!(rnull_idx, length(data))
-                end
-            end
-            i += 1
-        elseif c==0
-            # Join the elements that are equal at once
-            @label nextgroup
-            i1 = i
-            j1 = j
-            if grp && keepkeys
-                # While grouping with keepkeys we want to make sure we create
-                # one group for every unique key in the output index. Hence we may
-                # need to join on smaller groups
-                while i1 < ll && roweq(ks, lperm[i1], lperm[i1+1])
-                    i1 += 1
-                end
-            else
-                while i1 < ll && roweq(lkey, lperm[i1], lperm[i1+1])
-                    i1 += 1
-                end
-            end
-            while j1 < rr && roweq(rkey, rperm[j1], rperm[j1+1])
-                j1 += 1
-            end
-            if typ !== :anti
-                if !grp
-                    for x=i:i1
-                        for y=j:j1
-                            push!(I, ks[lperm[x]])
-                            # optimized push! method for concat_tup
-                            _push!(Val{:both}(), f, data,
-                                   lout, rout, ldata, rdata,
-                                   lperm[x], rperm[y],
-                                   missing_instance(missingtype), missing_instance(missingtype))
-                        end
-                    end
-                else
-                    push!(I, ks[lperm[i]])
-                    group = init_group()
-                    for x=i:i1
-                        for y=j:j1
-                            group = accumulate(group, f(ldata[lperm[x]], rdata[rperm[y]]))
-                        end
-                    end
-                    push!(data, group)
-                    if keepkeys && i1+1 <= ll && roweq(lkey, lperm[i1], lperm[i1+1])
-                        # This means that the next key on the left is equal in the lkey sense
-                        # but different in the unique-key sense, so we start to make a new block again
-                        i = i1 + 1
-                        @goto nextgroup
-                    end
-                end
-            end
-            i = i1 + 1
-            j = j1 + 1
-        else
-            if typ === :outer
-                push!(I, rkey[rperm[j]])
-                if grp
-                    # empty group
-                    push!(data, init_group())
-                else
-                    _push!(Val{:right}(), f, data, lout, rout,
-                           ldata, rdata, 0, rperm[j], lnull, rnull)
-                    push!(lnull_idx, length(data))
-                end
-            end
-            j += 1
-        end
-    end
-
-    # finish up
-    if typ !== :inner
-        if (typ === :outer || typ === :left || typ === :anti) && i <= ll
-            append!(I, ks[lperm[i:ll]])
-            if grp
-                # empty group
-                append!(data, map(x->init_group(), i:ll))
-            else
-                append!(rnull_idx, (1:length(i:ll)) .+ length(data))
-                _append!(Val{:left}(), f, data, lout, rout,
-                       ldata, rdata, lperm[i:ll], 0, lnull, rnull)
-            end
-        elseif typ === :outer && j <= rr
-            append!(I, rkey[rperm[j:rr]])
-            if grp
-                # empty group
-                append!(data, map(x->init_group(), j:rr))
-            else
-                append!(lnull_idx, (1:length(j:rr)) .+ length(data))
-                _append!(Val{:right}(), f, data, lout, rout,
-                       ldata, rdata, 0, rperm[j:rr], lnull, rnull)
-            end
-        end
-    end
-    lnull_idx, rnull_idx
-end
-
-
 # Missing
 nullrow(t::Type{<:Tuple}, ::Type{Missing}) = Tuple(map(x->missing, fieldtypes(t)))
 nullrow(t::Type{<:NamedTuple}, ::Type{Missing}) = t(Tuple(map(x->missing, fieldtypes(t))))
@@ -181,92 +10,68 @@ end
 
 nullrow(T, M) = missing_instance(M)
 
-# a joined column with missing values at `idxs`
-function outvec(col, idxs, ::Type{T}) where {T}
-    v = vec_missing(col, T)
-    for i in idxs
-        v[i] = missing_instance(T)
-    end
-    v
+nullrowtype(::Type{T}, ::Type{S}) where {T<:Tup, S} = map_params(t -> type2missingtype(t, S), T)
+nullrowtype(::Type{T}, ::Type{S}) where {T, S} = type2missingtype(T, S)
+
+nullablerows(s::Columns{C}, ::Type{S}) where {C, S} = Columns{nullrowtype(C, S)}(fieldarrays(s))
+nullablerows(s::AbstractVector, ::Type{S}) where {S} = vec_missing(s, S)
+
+function init_key_left_right(key::AbstractVector{K}, ldata::AbstractVector{L}, rdata::AbstractVector{R}) where {K, L, R}
+    similar(arrayof(K), 0), similar(arrayof(L), 0), similar(arrayof(R), 0)
 end
 
-# Ge StringArray and DataValue to play nice together
-function outvec(col::StringArray{T}, idxs, ::Type{DataValue}) where {T}
-    mask = [i in idxs for i in 1:length(col)]
-    for i in idxs
-        col[i] = ""
+_reduce(f, iter, ::Nothing) = reduce(f, iter)
+_reduce(f, iter, init_group) = reduce(f, iter, init = init_group())
+_reduce(::Nothing, iter, ::Nothing) = collect_columns(iter)
+_reduce(::Nothing, iter, init_group) = collect_columns(iter)
+
+# In a plain non group join with f === concat_tup, we avoid creating large structs and prefer to do things in place
+# In every step of the iteration, instead of just iterating we push the values to init
+function _join!(init, ::Val{typ}, ::Val{grp}, f, iter::GroupJoinPerm, ldata::AbstractVector{L}, rdata::AbstractVector{R};
+    missingtype=Missing, init_group=nothing, accumulate=nothing) where {typ, grp, L, R}
+
+    lkey, rkey = parent(iter.left), parent(iter.right)
+    lperm, rperm = sortperm(iter.left), sortperm(iter.right)
+    lnullable = grp === false && typ === :outer
+    rnullable = grp === false && typ !== :inner
+
+    filter_func = if typ === :anti
+        ((lidxs, ridxs),) -> !isempty(lidxs) && isempty(ridxs)
+    elseif typ === :inner
+        ((lidxs, ridxs),) -> !isempty(lidxs) && !isempty(ridxs)
+    elseif typ === :left
+        ((lidxs, _),) -> !isempty(lidxs)
+    elseif typ === :outer
+        _ -> true
     end
-    DataValueArray(col, mask)
-end
 
-
-
-function init_join_output(typ, grp, f, ldata, rdata, left, keepkeys, lkey, rkey, init_group, accumulate, missingtype)
-    lnull = nothing
-    rnull = nothing
-    loutput = nothing
-    routput = nothing
-
-    if isa(grp, Val{false})
-
-        left_type = eltype(ldata)
-        if !isa(typ, Union{Val{:left}, Val{:inner}, Val{:anti}})
-            null_left_type = map_params(x -> type2missingtype(x, missingtype), eltype(ldata))
-            lnull = nullrow(null_left_type, missingtype)
+    function getkeyiter((lidxs, ridxs))
+        key = isempty(lidxs) ? rkey[rperm[ridxs[1]]] : lkey[lperm[lidxs[1]]]
+        liter = lnullable && isempty(lidxs) ? (nullrow(L, missingtype),) : (ldata[lperm[i]] for i in lidxs)
+        riter = rnullable && isempty(ridxs) ? (nullrow(R, missingtype),) : (rdata[rperm[i]] for i in ridxs)
+        if init === nothing
+            joint_iter = (f(l, r) for (r, l) in Iterators.product(riter, liter))
+            res = grp ? _reduce(accumulate, joint_iter, init_group) : joint_iter
+            return key => res
         else
-            null_left_type = left_type
+            Base.foreach(Iterators.product(riter, liter)) do (r, l)
+                push!(init[1], key)
+                push!(init[2], l)
+                push!(init[3], r)
+            end
+            return
         end
-
-        right_type = eltype(rdata)
-        if !isa(typ, Val{:inner})
-            null_right_type = map_params(x -> type2missingtype(x, missingtype), eltype(rdata))
-            rnull = nullrow(null_right_type, missingtype)
-        else
-            null_right_type = right_type
-        end
-
-        if f === concat_tup
-            out_type = concat_tup_type(left_type, right_type)
-            # separate left and right parts of the output
-            # this is for optimizations in _push!
-            loutput = similar(arrayof(left_type), 0)
-            routput = similar(arrayof(right_type), 0)
-            data = concat_cols(loutput, routput)
-        else
-            out_type = _promote_op(f, null_left_type, null_right_type)
-            data = similar(arrayof(out_type), 0)
-        end
+    end
+    filtered_iter = Iterators.filter(filter_func, iter)
+    if init !== nothing
+        Base.foreach(getkeyiter, filtered_iter)
+        key, left, right = init
+        data = Columns(concat_tup(columns(left), columns(right)))
+        return Columns(key => data)
     else
-        left_type = eltype(ldata)
-        right_type = eltype(rdata)
-        if f === concat_tup
-            out_type = concat_tup_type(left_type, right_type)
-        else
-            out_type = _promote_op(f, left_type, right_type)
-        end
-        if init_group === nothing
-            init_group = () -> similar(arrayof(out_type), 0)
-        end
-        if accumulate === nothing
-            accumulate = push!
-        end
-        group_type = _promote_op(accumulate, typeof(init_group()), out_type)
-        data = similar(arrayof(group_type), 0)
+        pair_iter = (getkeyiter(idxs) for idxs in filtered_iter)
+        return grp === true ? collect_columns(pair_iter) : collect_columns_flattened(pair_iter)
     end
-
-    if isa(typ, Val{:inner})
-        guess = min(length(lkey), length(rkey))
-    else
-        guess = length(lkey)
-    end
-
-    if keepkeys
-        ks = pkeys(left)
-    else
-        ks = lkey
-    end
-
-    _sizehint!(similar(ks,0), guess), _sizehint!(data, guess), ks, loutput, routput, lnull, rnull, init_group, accumulate
 end
 
 """
@@ -324,19 +129,17 @@ function Base.join(f, left::Dataset, right::Dataset;
                    rselect=isa(right, NDSparse) ?
                        valuenames(right) : excludecols(right, rkey),
                    name = nothing,
-                   keepkeys=false, # defaults to keeping the keys for only the joined columns
-                   init_group=nothing,
-                   accumulate=nothing,
                    cache=true,
-                   missingtype=Missing)
+                   missingtype=Missing,
+                   init_group=nothing,
+                   accumulate=nothing)
 
     if !(how in [:inner, :left, :outer, :anti])
         error("Invalid how: supported join types are :inner, :left, :outer, and :anti")
     end
     lkey = lowerselection(left, lkey)
     rkey = lowerselection(right, rkey)
-    lperm = sortpermby(left, lkey; cache=cache)
-    rperm = sortpermby(right, rkey; cache=cache)
+
     if !isa(lkey, Tuple)
         lkey = (lkey,)
     end
@@ -344,6 +147,9 @@ function Base.join(f, left::Dataset, right::Dataset;
     if !isa(rkey, Tuple)
         rkey = (rkey,)
     end
+
+    lperm, lkey = sortpermby(left, lkey; cache=cache, return_keys=true)
+    rperm, rkey = sortpermby(right, rkey; cache=cache, return_keys=true)
 
     lselect = lowerselection(left, lselect)
     rselect = lowerselection(right, rselect)
@@ -357,46 +163,24 @@ function Base.join(f, left::Dataset, right::Dataset;
         end
     end
 
-    lkey = rows(left, lkey)
-    rkey = rows(right, rkey)
-
     ldata = rows(left, lselect)
     rdata = rows(right, rselect)
-    if !isa(left, NDSparse) && keepkeys
-        error("`keepkeys=true` only works while joining NDSparse type")
+
+    if !group
+        (how == :outer) && (ldata = nullablerows(ldata, missingtype))
+        (how == :inner) || (rdata = nullablerows(rdata, missingtype))
     end
 
+    KT = map_params(promote_type, eltype(lkey), eltype(rkey))
+    lkey = Columns{KT}(fieldarrays(lkey))
+    rkey = Columns{KT}(fieldarrays(rkey))
+    join_iter = GroupJoinPerm(GroupPerm(lkey, lperm), GroupPerm(rkey, rperm))
+    init = !group && f === concat_tup ? init_key_left_right(lkey, ldata, rdata) : nothing
     typ, grp = Val{how}(), Val{group}()
-    I, data, ks, lout, rout, lnull, rnull, init_group, accumulate =
-        init_join_output(typ, grp, f, ldata, rdata,
-                         left, keepkeys, lkey, rkey,
-                         init_group, accumulate, missingtype)
-
-    lnull_idx, rnull_idx = _join!(typ, grp, Val{keepkeys}(), f, I,
-                                  data, ks, lout, rout, lnull, rnull,
-                                  lkey, rkey, ldata, rdata, lperm,
-                                  rperm, init_group, accumulate, missingtype)
-
-    if !isempty(lnull_idx) && lout !== nothing
-        lout = if lout isa Columns
-            Columns(map(col -> outvec(col, lnull_idx, missingtype), columns(lout)))
-        else
-            outvec(col, lnull_idx, missingtype)
-        end
-        data = concat_cols(lout, rout)
-    end
-
-    if !isempty(rnull_idx) && rout !== nothing
-        rnulls = zeros(Bool, length(rout))
-        rnulls[rnull_idx] .= true
-        rout = if rout isa Columns
-            Columns(map(col -> outvec(col, rnull_idx, missingtype), columns(rout)))
-        else
-            outvec(col, rnull_idx, missingtype)
-        end
-        data = concat_cols(lout, rout)
-    end
-
+    res = _join!(init, typ, grp, f, join_iter, ldata, rdata;
+        missingtype=missingtype, init_group=init_group, accumulate=accumulate)
+    isempty(res) && return res
+    I, data = res.first, res.second
     if group && left isa IndexedTable && !(data isa Columns)
         data = Columns(groups=data)
     end
