@@ -175,6 +175,7 @@ end
 
 let a = NDSparse([1,2,2,3,4,5], [1,2,2,3,4,5], [1,2,20,3,4,5], agg=+)
     @test a == NDSparse([1,2,3,4,5], [1,2,3,4,5], [1,22,3,4,5])
+    @test a == aggregate!(+, NDSparse([1,2,2,3,4,5], [1,2,2,3,4,5], [1,2,20,3,4,5]))
 end
 
 let a = rand(5,5,5)
@@ -1165,6 +1166,15 @@ end
 
     x = table([1,2], [table([3,4],[5,6], names=[:a,:b]), table([7,8], [9,10], names=[:a,:b])], names=[:x, :y]);
     @test flatten(x, :y) == table([1,1,2,2], [3,4,7,8], [5,6,9,10], names=[:x,:a, :b])
+    x = table([1,2], [(2i for i in 1:3 if isodd(i)), (5, nothing)])
+    @test flatten(x) == table(([1,1,2,2], [2,6,5,nothing]))
+    
+    # test that isiterable_val output is known statically
+    f(x) = IndexedTables.isiterable_val(x) ? x : nothing
+    val1 = @inferred f([1, 2])
+    @test val1 == [1, 2]
+    val2 = @inferred f(:a)
+    @test val2 === nothing
 
     t = table([1,1,2,2], [3,4,5,6], names=[:x,:y])
     @test groupby((:normy => x->Iterators.repeated(mean(x), length(x)),),
