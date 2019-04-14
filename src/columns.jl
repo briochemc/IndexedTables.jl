@@ -345,7 +345,12 @@ function rows end
 rows(x::AbstractVector) = x
 rows(cols::Tup) = Columns(cols)
 
-rows(t, which...) = rows(columns(t, which...))
+# preserve length of rows when no columns are selected
+_rows(t, ::NamedTuple{(), Tuple{}}) = fill(NamedTuple(), length(t))
+_rows(t, ::Tuple{}) = fill(Tuple(), length(t))
+_rows(t, cols) = rows(cols)
+
+rows(t, which...) = _rows(t, columns(t, which...))
 
 _cols_tuple(xs::Columns) = columns(xs)
 _cols_tuple(xs::AbstractArray) = (xs,)
