@@ -530,6 +530,7 @@ transform(t, args...) = @cols transform!(t, args...)
 @deprecate pushcol(t, args) transform(t, args)
 
 @deprecate popcol(t, args...) select(t, Not(args...))
+@deprecate popcol(t) select(t, Not(ncols(t)))
 
 """
     insertcol(t, position::Integer, name, x)
