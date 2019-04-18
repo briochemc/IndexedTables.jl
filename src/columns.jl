@@ -415,7 +415,7 @@ Base.@deprecate set!(d::ColDict, key, x) setindex!(d, x, key)
 transform!(d::ColDict, changes::Pair...) = transform!(d, changes)
 
 function transform!(d::ColDict, changes)
-    foreach(changes) do (key, val)::Pair
+    Base.foreach(changes) do (key, val)::Pair
         d[key] = val
     end
 end
@@ -473,7 +473,7 @@ end
 
 @deprecate rename!(t::ColDict, col::Union{Symbol, Integer}, newname) rename!(t, col => newname)
 
-rename!(t::ColDict, changes) = foreach(change::Pair -> rename!(t, change), changes)
+rename!(t::ColDict, changes) = Base.foreach(change::Pair -> rename!(t, change), changes)
 rename!(t::ColDict, changes::Pair...) = rename!(t, changes)
 
 function Base.push!(d::ColDict, (key, x)::Pair)
