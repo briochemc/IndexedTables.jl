@@ -556,7 +556,7 @@ end
     t = table([1, 2], [3, 4], names=[:x, :y])
     @test transform(t, 2 => [5, 6]) == table([1, 2], [5, 6], names=Symbol[:x, :y])
     @test transform(t, 2 => [5, 6], 1 => [7, 12]) == table([7, 12], [5, 6], names=Symbol[:x, :y]) ==
-        transform(t, (2 => [5, 6], 1 => [7, 12]))
+        transform(t, (2 => [5, 6], 1 => [7, 12])) == transform(t, [2 => [5, 6], 1 => [7, 12]])
     @test transform(t, :x => :x => (x->1 / x)) == table([1.0, 0.5], [3, 4], names=Symbol[:x, :y])
     t = table([0.01, 0.05], [1, 2], [3, 4], names=[:t, :x, :y], pkey=:t)
     t2 = transform(t, :t => [0.1, 0.05])
@@ -565,7 +565,7 @@ end
     @test transform(t, :z => [1 // 2, 3 // 4]) == table([0.01, 0.05], [2, 1], [3, 4], [1//2, 3//4], names=Symbol[:t, :x, :y, :z])
     @test transform(t, :z => [1 // 2, 3 // 4], :w => [0, 1]) ==
         table([0.01, 0.05], [2, 1], [3, 4], [1//2, 3//4], [0, 1], names=Symbol[:t, :x, :y, :z, :w]) ==
-        transform(t, (:z => [1 // 2, 3 // 4], :w => [0, 1]))
+        transform(t, (:z => [1 // 2, 3 // 4], :w => [0, 1])) == transform(t, [:z => [1 // 2, 3 // 4], :w => [0, 1]])
     t = table([0.01, 0.05], [2, 1], [3, 4], names=[:t, :x, :y], pkey=(:t,:x))
     @test select(t, Not(:t)) == table([1, 2], [4,3], names=Symbol[:x, :y])
     @test select(t, Not(ncols(t))) == table([0.01, 0.05], [2, 1], names=Symbol[:t, :x])
@@ -621,7 +621,7 @@ end
     @test rename(t, :t => :time) == rename(t, :t => :time)
     @test rename(t, :t => :time, :x => :position) ==
         table([0.01, 0.05], [2, 1], names=Symbol[:time, :position]) ==
-        rename(t, (:t => :time, :x => :position))
+        rename(t, (:t => :time, :x => :position)) == rename(t, [:t => :time, :x => :position])
 end
 
 @testset "map" begin
