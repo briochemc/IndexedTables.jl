@@ -3,7 +3,6 @@ uuid = "6deec6e2-d858-57c5-ab9b-e6ca5bd20e43"
 
 [deps]
 DataValues = "e7dc6d0d-1eca-5fa6-8ad6-5aecde8b7ea5"
-Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 IteratorInterfaceExtensions = "82899510-4779-5014-852e-03e436cf321d"
 OnlineStatsBase = "925886fa-5bf2-5e8e-b522-a9147a512338"
@@ -29,10 +28,8 @@ TableTraits = "^0.3, ^0.4, ^1"
 [extras]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 OnlineStats = "a15396b6-48d5-5d58-9928-6d29437db91e"
-PooledArrays = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-WeakRefStrings = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
 
 [targets]
-test = ["Dates", "WeakRefStrings", "Test", "Random", "OnlineStats", "PooledArrays"]
+test = ["Dates", "Test", "Random", "OnlineStats"]
