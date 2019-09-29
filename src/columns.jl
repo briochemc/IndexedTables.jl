@@ -141,16 +141,18 @@ map_rows(f, iter) = collect_columns(f(i) for i in iter)
 ## Special selectors to simplify column selector
 
 """
-    Not(cols::Union{Symbol, Int}...)
+    Not(cols)
 
-Select the complementary of the selection in `cols`. `Not` can accept several arguments,
-in which case it returns the complementary of the union of the selections.
+Select the complementary of the selection in `cols`. To exclude several columns
+at the same time, use a `Tuple`. Use `Not(All(args...))` to exclude the union of
+several selections.
 
 # Examples
 
     t = table([1,1,2,2], [1,2,1,2], [1,2,3,4], names=[:a,:b,:c], pkey = (:a, :b))
     select(t, Not(:a))
-    select(t, Not(:a, (:a, :b)))
+    select(t, Not((:a, :b)))
+    select(t, Not(All(:a, (:a, :b))))
 """
 struct Not{T}
     cols::T
