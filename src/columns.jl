@@ -494,7 +494,7 @@ by the `AbstractVector` `value`. If `col` is not an existing column, a new colum
 
     # the column :z is not part of t so a new column is added
     t = table([0.01, 0.05], [2,1], [3,4], names=[:t, :x, :y], pkey=:t)
-    pushcol(t, :z => [1//2, 3//4])
+    transform(t, :z => [1//2, 3//4])
 """
 transform(t, args...) = @cols transform!(t, args...)
 
