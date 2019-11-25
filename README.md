@@ -19,7 +19,7 @@ IndexedTables offers two data structures: `IndexedTable` and `NDSparse`.
 
 ## Quickstart
 
-```
+```julia
 using Pkg
 Pkg.add("IndexedTables")
 using IndexedTables
